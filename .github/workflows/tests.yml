@@ -11,7 +11,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Unit tests
-        run: python -m unittest test_csp_hash_check -v
+        run: python -m unittest test_csp_hash_check test_browser_cases -v
       # The action itself, run the way a user's workflow would, against the
       # example site in this repository.
       - name: The action on the example site

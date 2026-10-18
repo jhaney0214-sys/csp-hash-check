@@ -42,14 +42,19 @@ dependencies.
 
 ## What it checks
 
-- **Every inline script** (`<script>` with no `src`, including `type="module"`)
-  against every policy that applies to its page. Data blocks a browser does
-  not run, such as JSON-LD and templates, are skipped.
+- **Every inline script** (`<script>` with no `src`, including `type="module"`
+  and the older JavaScript types such as `text/jscript`) against every policy
+  that applies to its page. What a browser never runs is skipped: data
+  blocks such as JSON-LD, a type with parameters, and anything inside an HTML
+  comment or a `<noscript>`. Markup written inside a script's strings is not
+  mistaken for handlers. The page is read with an HTML parser, not patterns.
 - **Policies from two places:** a Netlify or Cloudflare Pages `_headers` file,
   with its `*` and `:placeholder` path patterns matched against the URL each
   file is served at (`/about.html`, `/about`, `/docs/`), and
   `<meta http-equiv="Content-Security-Policy">` tags. A browser enforces every
-  policy it is given, so a script has to pass all of them.
+  policy it is given, so a script has to pass all of them. A `<meta>` policy
+  governs only what follows it, and only inside `<head>`; one in the body, or
+  marked report-only, is ignored, as browsers ignore it.
 - **Line endings as the browser reads them.** The HTML parser turns CRLF
   into LF before a script is hashed, so a page saved with Windows line
   endings is hashed on its LF text. (Since `v1.1.0`, after a browser refused
@@ -61,12 +66,21 @@ dependencies.
   missing hash is always suggested as `sha256`.
 - **The browser's rules for falling back:** `script-src-elem`, then
   `script-src`, then `default-src`; `'unsafe-inline'` ignored once a hash or
-  nonce is listed.
-- **Inline event handlers** (`onclick=`, `onsubmit=` and the rest), which no
-  script hash allows. They run only under `'unsafe-inline'` or
-  `'unsafe-hashes'`.
-- **Stale hashes:** hashes in a `_headers` policy that no inline script on its
-  pages produces. A warning, or an error with `fail-on-stale`.
+  nonce is listed, and for scripts once `'strict-dynamic'` is.
+- **Inline event handlers** (`onclick=`, `onsubmit=` and the rest) and
+  **`javascript:` links**, which no script hash allows. They run under
+  `'unsafe-inline'`, or under `'unsafe-hashes'` with their own hash listed;
+  the error names that hash.
+- **Checked against a browser.** `browser-cases/` holds a page for each of
+  these rules and `observed.json` what Chrome did with it;
+  `test_browser_cases.py` fails if the checker ever disagrees. Since `v1.2.0`,
+  which fixed four ways it disagreed: `'unsafe-hashes'` passed every handler,
+  `'strict-dynamic'` did not switch `'unsafe-inline'` off, a `<meta>` policy
+  governed the whole page, and scripts in comments and `<noscript>` were
+  checked.
+- **Stale hashes:** hashes in a `_headers` policy that nothing on its pages
+  produces, reported at the policy's line. A warning, or an error with
+  `fail-on-stale`.
 
 ## What it does not check
 

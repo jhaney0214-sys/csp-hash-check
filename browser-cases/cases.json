@@ -1,0 +1,111 @@
+{
+ "strict-dynamic-unsafe-inline": {
+  "expect": {
+   "s": "blocked",
+   "h": "blocked"
+  },
+  "note": "'strict-dynamic' switches 'unsafe-inline' off, for scripts and for handlers"
+ },
+ "strict-dynamic-hash": {
+  "expect": {
+   "s": "ran"
+  },
+  "note": "a hash still allows an inline script under 'strict-dynamic'"
+ },
+ "unsafe-hashes-without-the-handler-hash": {
+  "expect": {
+   "s": "ran",
+   "h": "blocked"
+  },
+  "note": "'unsafe-hashes' allows only handlers whose own hash is listed"
+ },
+ "unsafe-hashes-with-the-handler-hash": {
+  "expect": {
+   "h": "ran"
+  },
+  "note": "the handler's hash, over its attribute value"
+ },
+ "unsafe-hashes-entity-decoded": {
+  "expect": {
+   "q": "ran"
+  },
+  "note": "the hash is of the attribute value after &quot; is decoded"
+ },
+ "javascript-url-hash-only": {
+  "expect": {
+   "s": "ran",
+   "j": "blocked"
+  },
+  "note": "a javascript: link runs only under 'unsafe-inline'"
+ },
+ "javascript-url-unsafe-inline": {
+  "expect": {
+   "j": "ran"
+  },
+  "note": "and does run under it"
+ },
+ "javascript-url-unsafe-hashes": {
+  "expect": {
+   "j": "blocked"
+  },
+  "note": "whether 'unsafe-hashes' and the URL's hash let a javascript: link run"
+ },
+ "meta-after-the-script": {
+  "expect": {
+   "before": "ran",
+   "after": "blocked"
+  },
+  "note": "a meta policy governs only what is parsed after it"
+ },
+ "meta-in-the-body": {
+  "expect": {
+   "s": "ran"
+  },
+  "note": "a meta policy outside <head> is ignored"
+ },
+ "meta-report-only": {
+  "expect": {
+   "s": "ran"
+  },
+  "note": "report-only in a meta tag is ignored altogether"
+ },
+ "noscript": {
+  "expect": {
+   "s": "ran",
+   "n": "blocked"
+  },
+  "note": "a script inside <noscript> is text when scripting is on; it never runs (and is never checked)"
+ },
+ "comment": {
+  "expect": {
+   "s": "ran",
+   "c": "blocked"
+  },
+  "note": "a script inside a comment never runs"
+ },
+ "handler-text-inside-a-script": {
+  "expect": {
+   "s": "ran"
+  },
+  "note": "an onerror= inside a script's string is not a handler"
+ },
+ "legacy-javascript-type": {
+  "expect": {
+   "s": "ran",
+   "t": "blocked"
+  },
+  "note": "text/jscript is a JavaScript type, so it runs and is checked like any script"
+ },
+ "legacy-javascript-type-no-policy": {
+  "expect": {
+   "t": "ran"
+  },
+  "note": "with no policy at all: does text/jscript run?"
+ },
+ "type-with-parameters": {
+  "expect": {
+   "p": "blocked"
+  },
+  "note": "a type with parameters is not a JavaScript MIME type essence match; with no policy at all, it does not run"
+ }
+}

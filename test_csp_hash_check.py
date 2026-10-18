@@ -172,12 +172,48 @@ class Handlers(Site):
         self.assertEqual(len(errors), 1)
         self.assertIn("onsubmit", errors[0][2])
 
-    def test_unsafe_hashes_or_unsafe_inline_lets_it_run(self):
+    def test_unsafe_hashes_needs_the_handlers_own_hash(self):
+        # Until 1.2 any 'unsafe-hashes' passed every handler; a browser runs
+        # only the handlers whose hash is listed (browser-cases/unsafe-hashes-*).
         self.page("index.html", '<button onclick="go()">x</button>')
         self.headers("/*\n  Content-Security-Policy: script-src 'self' 'unsafe-hashes' 'sha256-AAAA'\n")
+        errors = self.run_check()[0]
+        self.assertEqual(len(errors), 1)
+        self.assertIn(c.digest("go()"), errors[0][2])           # and names the hash to add
+        self.headers("/*\n  Content-Security-Policy: script-src 'self' 'unsafe-hashes' %s\n" % c.digest("go()"))
         self.assertEqual(self.run_check()[0], [])
         self.headers("/*\n  Content-Security-Policy: script-src 'unsafe-inline'\n")
         self.assertEqual(self.run_check()[0], [])
+
+    def test_strict_dynamic_switches_unsafe_inline_off(self):
+        self.page("index.html", "<script>%s</script>" % SCRIPT)
+        self.headers("/*\n  Content-Security-Policy: script-src 'unsafe-inline' 'strict-dynamic'\n")
+        self.assertEqual(len(self.run_check()[0]), 1)
+
+    def test_a_javascript_link_is_checked(self):
+        self.page("index.html", '<a href="javascript:void(go())">x</a>')
+        self.headers("/*\n  Content-Security-Policy: script-src 'self'\n")
+        errors = self.run_check()[0]
+        self.assertEqual(len(errors), 1)
+        self.assertIn("javascript: URL in href=", errors[0][2])
+
+    def test_markup_inside_a_script_is_not_a_handler(self):
+        js = "var s = '<img onerror=\"x()\" style=\"color:red\">';"
+        self.page("index.html", "<script>%s</script>" % js)
+        self.headers("/*\n  Content-Security-Policy: script-src %s; style-src 'self'\n" % c.digest(js))
+        self.assertEqual(c.check(self.root, styles=True)[0], [])
+
+    def test_a_meta_policy_governs_only_what_follows_it_in_head(self):
+        self.page("index.html", "<script>%s</script>"
+                                '<meta http-equiv="Content-Security-Policy" content="script-src \'none\'">'
+                                "<script>%s</script>" % (SCRIPT, SCRIPT + " "))
+        errors = self.run_check()[0]
+        self.assertEqual([e[1] for e in errors], [3])          # the second script; SCRIPT spans lines 1-3
+        self.page("index.html", "<body><meta http-equiv=\"Content-Security-Policy\" content=\"script-src 'none'\">"
+                                "<script>%s</script>" % SCRIPT)
+        errors, _, notes, _ = self.run_check()
+        self.assertEqual(errors, [])
+        self.assertTrue(any("outside <head>" in n[2] for n in notes))
 
 
 class Stale(Site):
