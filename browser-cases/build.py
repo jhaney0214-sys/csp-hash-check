@@ -156,6 +156,15 @@ def build():
          {"p": "blocked"},
          "a type with parameters is not a JavaScript MIME type essence match; with no policy at all, it does not run")
 
+    # The page's bytes are windows-1252; the policy holds the hash of the
+    # script's text encoded as UTF-8, which is what CSP says a browser hashes.
+    latin = "var café = 1;" + mark("e")
+    html = page("script-src %s" % sha(latin), "<script>%s</script>" % latin).replace(
+        '<meta charset="utf-8">', '<meta charset="windows-1252">')
+    CASES["windows-1252-page"] = {"expect": {"e": "ran"},
+                                  "note": "a windows-1252 page: the hash is of the UTF-8 text, not the file's bytes"}
+    (PAGES / "windows-1252-page.html").write_bytes(html.encode("cp1252"))
+
     (HERE / "cases.json").write_text(json.dumps(CASES, indent=1) + "\n", encoding="utf-8", newline="\n")
     return CASES
 

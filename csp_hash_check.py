@@ -340,9 +340,43 @@ def blocked_message(item, where, directive, h):
             "or allow it with 'unsafe-hashes' and %s" % (item["name"], where, directive, h))
 
 
+CHARSET = re.compile(rb"""<meta\b[^>]*?charset\s*=\s*["']?\s*([A-Za-z0-9._:-]+)""", re.I)
+# Labels a browser decodes as windows-1252, whatever they say.
+WINDOWS_1252 = {"iso-8859-1", "iso8859-1", "latin1", "l1", "us-ascii", "ascii", "windows-1252", "cp1252",
+                "x-cp1252", "ansi_x3.4-1968", "iso-ir-100", "ibm819", "cp819", "csisolatin1"}
+
+
 def read_page(path):
-    with open(path, encoding="utf-8", newline="") as fh:
-        return fh.read()
+    """(text, note): the page decoded as a browser would decode a file served
+    with no charset in its headers. A browser hashes the UTF-8 encoding of the
+    text it decoded, whatever the file's own encoding, so the hash is only
+    right if this is. `note` says how a page that was not plain UTF-8 was read.
+
+    A byte-order mark wins; then a <meta charset> in the first 1024 bytes;
+    then UTF-8 if the bytes are valid UTF-8; then windows-1252.
+    """
+    with open(path, "rb") as fh:
+        raw = fh.read()
+    for bom, codec in ((b"\xef\xbb\xbf", "utf-8"), (b"\xff\xfe", "utf-16-le"), (b"\xfe\xff", "utf-16-be")):
+        if raw.startswith(bom):
+            return raw[len(bom):].decode(codec, "replace"), None
+    declared = CHARSET.search(raw[:1024])
+    if declared:
+        label = declared.group(1).decode("ascii").lower()
+        codec = "cp1252" if label in WINDOWS_1252 else label
+        try:
+            text = raw.decode(codec)
+            return text, (None if codec in ("utf-8", "utf8") else "read as %s, from its <meta charset>" % label)
+        except LookupError:
+            pass                            # a label Python does not know: fall through
+        except UnicodeDecodeError:
+            return (raw.decode(codec, "replace"),
+                    "declares %s but holds bytes that are not; read with replacements, as a browser does" % label)
+    try:
+        return raw.decode("utf-8"), None
+    except UnicodeDecodeError:
+        return raw.decode("cp1252", "replace"), ("not UTF-8 and declares no charset; read as windows-1252, "
+                                                 "a browser's usual guess. Declare the charset to be sure")
 
 
 def check(root, headers_file=None, styles=False):
@@ -366,7 +400,13 @@ def check(root, headers_file=None, styles=False):
                 continue
             path = os.path.join(folder, name)
             rel = os.path.relpath(path, root)
-            html = read_page(path)
+            try:
+                html, how = read_page(path)
+            except OSError as exc:
+                errors.append((rel, 1, "could not be read: %s" % exc.strerror))
+                continue
+            if how:
+                notes.append((rel, 1, how))
             pages += 1
             served = url_paths(rel)
             applying = [i for i, (pat, _, _) in enumerate(rules)

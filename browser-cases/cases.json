@@ -119,5 +119,11 @@
    "p": "blocked"
   },
   "note": "a type with parameters is not a JavaScript MIME type essence match; with no policy at all, it does not run"
+ },
+ "windows-1252-page": {
+  "expect": {
+   "e": "ran"
+  },
+  "note": "a windows-1252 page: the hash is of the UTF-8 text, not the file's bytes"
  }
 }

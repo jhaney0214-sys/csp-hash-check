@@ -1,4 +1,5 @@
-# A script hash covers its exact bytes, line endings included: keep the
-# example site identical on every checkout.
+# Kept LF on every checkout so the example site and the browser cases are the
+# same bytes everywhere. (A browser hashes a script after reading CRLF as LF,
+# so line endings would not change a hash; the files stay identical anyway.)
 *.html text eol=lf
 _headers text eol=lf

@@ -71,6 +71,9 @@
   "unsafe-hashes-without-the-handler-hash": {
    "s": "ran",
    "h": "blocked"
+  },
+  "windows-1252-page": {
+   "e": "ran"
   }
  }
 }

@@ -24,8 +24,9 @@ MARK = re.compile(r"dataset\.(\w+)")
 
 def verdicts(name):
     """{mark: True if the checker reports an error on its line}."""
-    with open(os.path.join(CASES, "pages", name + ".html"), encoding="utf-8", newline="") as fh:
-        lines = fh.read().split("\n")
+    # Bytes, read as latin-1: the marks are ASCII, and one page is windows-1252.
+    with open(os.path.join(CASES, "pages", name + ".html"), "rb") as fh:
+        lines = fh.read().decode("latin-1").split("\n")
     root = tempfile.mkdtemp()
     try:
         shutil.copy(os.path.join(CASES, "pages", name + ".html"), os.path.join(root, "index.html"))

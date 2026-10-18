@@ -216,6 +216,41 @@ class Handlers(Site):
         self.assertTrue(any("outside <head>" in n[2] for n in notes))
 
 
+class Encodings(Site):
+    """The hash is of the UTF-8 encoding of the text the browser decoded."""
+
+    def raw_page(self, data):
+        with open(os.path.join(self.root, "index.html"), "wb") as fh:
+            fh.write(data)
+
+    def test_a_windows_1252_page_is_decoded_not_fatal(self):
+        js = "var café = 1;"
+        self.raw_page(b'<meta charset="windows-1252"><script>' + js.encode("cp1252") + b"</script>")
+        self.headers("/*\n  Content-Security-Policy: script-src %s\n" % c.digest(js))
+        errors, _, notes, _ = self.run_check()
+        self.assertEqual(errors, [])
+        self.assertTrue(any("windows-1252" in n[2] for n in notes))
+
+    def test_latin1_is_read_as_windows_1252_as_a_browser_does(self):
+        js = "var x = '’';"                    # 0x92 in windows-1252, a control code in latin-1
+        self.raw_page(b'<meta charset="iso-8859-1"><script>' + js.encode("cp1252") + b"</script>")
+        self.headers("/*\n  Content-Security-Policy: script-src %s\n" % c.digest(js))
+        self.assertEqual(self.run_check()[0], [])
+
+    def test_no_charset_and_not_utf8_is_guessed_and_said(self):
+        self.raw_page(b"<script>var a = '\xe9';</script>")
+        self.headers("/*\n  Content-Security-Policy: script-src %s\n" % c.digest("var a = 'é';"))
+        errors, _, notes, _ = self.run_check()
+        self.assertEqual(errors, [])
+        self.assertTrue(any("declares no charset" in n[2] for n in notes))
+
+    def test_a_utf8_bom_is_not_part_of_the_page(self):
+        self.raw_page(b"\xef\xbb\xbf<script>" + SCRIPT.encode() + b"</script>")
+        self.headers("/*\n  Content-Security-Policy: script-src %s\n" % HASH)
+        errors, _, notes, _ = self.run_check()
+        self.assertEqual((errors, notes), ([], []))
+
+
 class HeaderFiles(Site):
     def test_cloudflares_detach_takes_the_policy_off(self):
         self.page("index.html", "<script>%s</script>" % SCRIPT)

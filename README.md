@@ -62,6 +62,11 @@ dependencies.
   endings is hashed on its LF text. (Since `v1.1.0`, after a browser refused
   the CRLF hash; `v1.0.0` hashed the bytes, so on a CRLF page it reported
   every script blocked and suggested a hash the browser rejects.)
+- **The page's own encoding.** A browser hashes the UTF-8 encoding of the
+  text it decoded, so a windows-1252 page is decoded first: by its
+  byte-order mark, its `<meta charset>` (latin-1 read as windows-1252, as
+  browsers do), as UTF-8 if it is valid, and otherwise as windows-1252 with a
+  note saying so. Before `v1.2.0` a page that was not UTF-8 stopped the run.
 - **Hashes in any of CSP's three algorithms:** `sha256`, `sha384` and
   `sha512`, with the algorithm name in any case. (Since `v1.1.0`;
   `v1.0.0` knew only `sha256` and failed a `sha384` policy on every page.) A
