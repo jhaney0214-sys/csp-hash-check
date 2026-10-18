@@ -50,6 +50,38 @@ class Scripts(Site):
         errors, warnings, _, pages = self.run_check()
         self.assertEqual((errors, warnings, pages), ([], [], 1))
 
+    def test_a_page_saved_with_crlf_needs_the_hash_of_its_lf_text(self):
+        # The HTML parser turns CRLF into LF before hashing; a browser refused
+        # the CRLF hash and named the LF one (2026-10-18). Before that, this
+        # check failed every CRLF page and suggested the hash the browser refuses.
+        self.page("index.html", "<script>%s</script>" % SCRIPT.replace("\n", "\r\n"))
+        self.headers("/*\n  Content-Security-Policy: script-src 'self' %s\n" % HASH)
+        errors, warnings, _, _ = self.run_check()
+        self.assertEqual((errors, warnings), ([], []))
+        self.headers("/*\n  Content-Security-Policy: script-src 'self' %s\n"
+                     % c.digest(SCRIPT.replace("\n", "\r\n")))
+        errors, _, _, _ = self.run_check()
+        self.assertEqual(len(errors), 1)
+        self.assertIn(HASH, errors[0][2])
+
+    def test_a_sha384_or_sha512_hash_allows_it_and_is_not_stale(self):
+        # CSP accepts all three algorithms; only sha256 was recognised before 2026-10-18,
+        # so a sha384 policy failed every page and called its own hash stale.
+        for algorithm in ("sha384", "sha512"):
+            self.page("index.html", "<script>%s</script>" % SCRIPT)
+            self.headers("/*\n  Content-Security-Policy: script-src 'self' %s\n" % c.digest(SCRIPT, algorithm))
+            errors, warnings, _, _ = self.run_check()
+            self.assertEqual((errors, warnings), ([], []), algorithm)
+
+    def test_the_algorithm_name_is_case_insensitive_but_the_hash_is_not(self):
+        self.page("index.html", "<script>%s</script>" % SCRIPT)
+        upper = HASH.replace("'sha256-", "'SHA256-")
+        self.headers("/*\n  Content-Security-Policy: script-src %s\n" % upper)
+        self.assertEqual(self.run_check()[:2], ([], []))
+        body = HASH[len("'sha256-"):-1]
+        self.headers("/*\n  Content-Security-Policy: script-src 'sha256-%s'\n" % body.swapcase())
+        self.assertEqual(len(self.run_check()[0]), 1)
+
     def test_a_changed_script_fails_and_names_its_new_hash(self):
         self.page("index.html", "<p>\n<script>%s// edited\n</script>" % SCRIPT)
         self.headers("/*\n  Content-Security-Policy: script-src 'self' %s\n" % HASH)

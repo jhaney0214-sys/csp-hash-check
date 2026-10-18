@@ -50,6 +50,15 @@ dependencies.
   file is served at (`/about.html`, `/about`, `/docs/`), and
   `<meta http-equiv="Content-Security-Policy">` tags. A browser enforces every
   policy it is given, so a script has to pass all of them.
+- **Line endings as the browser reads them.** The HTML parser turns CRLF
+  into LF before a script is hashed, so a page saved with Windows line
+  endings is hashed on its LF text. (On `main` since 2026-10-18, after a
+  browser refused the CRLF hash; `v1` hashes the bytes, so on a CRLF page it
+  reports every script blocked and suggests a hash the browser rejects.)
+- **Hashes in any of CSP's three algorithms:** `sha256`, `sha384` and
+  `sha512`, with the algorithm name in any case. (On `main` since
+  2026-10-18; `v1` knows only `sha256`, and fails a `sha384` policy on every
+  page.) A missing hash is always suggested as `sha256`.
 - **The browser's rules for falling back:** `script-src-elem`, then
   `script-src`, then `default-src`; `'unsafe-inline'` ignored once a hash or
   nonce is listed.

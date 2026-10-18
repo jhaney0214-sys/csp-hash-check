@@ -52,6 +52,14 @@ def attr(attrs, name):
     return next(g for g in m.groups()[1:] if g is not None)
 
 
+def parsed(text):
+    """Text as the HTML parser hands it on: every CRLF and lone CR become LF
+    before a script or style is hashed. A file saved with Windows line endings
+    therefore needs the hash of its LF text, not of its bytes (checked in a
+    browser 2026-10-18: it refused the CRLF hash and named the LF one)."""
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def inline_scripts(html):
     """[(line, source)] for each inline script a browser would run."""
     out = []
@@ -62,13 +70,13 @@ def inline_scripts(html):
         kind = (attr(attrs, "type") or "").strip().lower()
         if kind not in JS_TYPES:
             continue
-        out.append((html.count("\n", 0, m.start()) + 1, body))
+        out.append((html.count("\n", 0, m.start()) + 1, parsed(body)))
     return out
 
 
 def inline_styles(html):
     """[(line, source)] for each <style> element."""
-    return [(html.count("\n", 0, m.start()) + 1, m.group(2)) for m in STYLE.finditer(html)]
+    return [(html.count("\n", 0, m.start()) + 1, parsed(m.group(2))) for m in STYLE.finditer(html)]
 
 
 def style_attributes(html):
@@ -80,10 +88,30 @@ def handlers(html):
     return [(html.count("\n", 0, m.start()) + 1, m.group(1).lower()) for m in HANDLER.finditer(html)]
 
 
-def digest(source):
-    """The browser's hash: sha256 over the UTF-8 bytes of the script text,
-    exactly as written, whitespace and line endings included."""
-    return "'sha256-%s'" % base64.b64encode(hashlib.sha256(source.encode("utf-8")).digest()).decode()
+def digest(source, algorithm="sha256"):
+    """The browser's hash: over the UTF-8 bytes of the script text, exactly
+    as written, whitespace and line endings included."""
+    raw = hashlib.new(algorithm, source.encode("utf-8")).digest()
+    return "'%s-%s'" % (algorithm, base64.b64encode(raw).decode())
+
+
+def digests(source):
+    """The source's hash under each algorithm CSP accepts: sha256, sha384, sha512."""
+    return {digest(source, a) for a in ("sha256", "sha384", "sha512")}
+
+
+def normal(source):
+    """A hash source with its algorithm lowercased ('SHA384-' is valid CSP); the
+    base64 is case-sensitive and kept as written. Other sources are returned as is."""
+    algorithm, dash, rest = source.partition("-")
+    if dash and algorithm.lower() in ("'sha256", "'sha384", "'sha512"):
+        return algorithm.lower() + dash + rest
+    return source
+
+
+def matching(sources, hashed):
+    """The sources in a policy that allow a script whose hashes are `hashed`."""
+    return {s for s in sources if normal(s) in hashed}
 
 
 def parse_headers(text):
@@ -167,9 +195,10 @@ def allows_style_attributes(policy):
 
 
 def allows_inline(sources, hashed):
-    """True, False, or 'nonce' when only a nonce could allow it (unchecked)."""
+    """True, False, or 'nonce' when only a nonce could allow it (unchecked).
+    `hashed` is one hash source or a set of them (one per algorithm)."""
     lowered = [s.lower() for s in sources]
-    if hashed in sources:
+    if matching(sources, {hashed} if isinstance(hashed, str) else set(hashed)):
         return True
     has_hash_or_nonce = any(s.startswith("'sha") or s.startswith("'nonce-") for s in lowered)
     if "'unsafe-inline'" in lowered and not has_hash_or_nonce:
@@ -222,14 +251,14 @@ def check(root, headers_file=None, styles=False):
                     notes.append((rel, 1, "no Content-Security-Policy applies; %d inline script(s) unchecked" % len(scripts)))
                 continue
             for line, source in scripts:
-                h = digest(source)
+                h, every = digest(source), digests(source)
                 for i, policy in policies:
                     name, sources = script_sources(policy)
                     if sources is None:
                         continue
-                    verdict = allows_inline(sources, h)
-                    if verdict is True and i is not None and h in sources:
-                        used[i].add(h)
+                    verdict = allows_inline(sources, every)
+                    if verdict is True and i is not None:
+                        used[i].update(matching(sources, every))
                     if verdict is False:
                         where = "_headers" if i is not None else "<meta> policy"
                         errors.append((rel, line, "inline script blocked by %s (%s): add %s" % (where, name, h)))
@@ -237,14 +266,14 @@ def check(root, headers_file=None, styles=False):
                         notes.append((rel, line, "inline script relies on a nonce, which a static check cannot verify"))
             if styles:
                 for line, source in inline_styles(html):
-                    h = digest(source)
+                    h, every = digest(source), digests(source)
                     for i, policy in policies:
                         name, sources = style_sources(policy)
                         if sources is None:
                             continue
-                        verdict = allows_inline(sources, h)
-                        if verdict is True and i is not None and h in sources:
-                            used[i].add(h)
+                        verdict = allows_inline(sources, every)
+                        if verdict is True and i is not None:
+                            used[i].update(matching(sources, every))
                         if verdict is False:
                             where = "_headers" if i is not None else "<meta> policy"
                             errors.append((rel, line, "inline style blocked by %s (%s): add %s"
