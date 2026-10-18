@@ -637,6 +637,63 @@ def check(root, headers_file=None, styles=False, exclude=(), configs=()):
     return errors, warnings, notes, pages
 
 
+LABELS = {"script": "script", "style": "style element", "handler": "%s= handler",
+          "style-attr": "style= attribute", "url": "javascript: URL in %s="}
+
+
+def needed(root, styles=False, exclude=()):
+    """{page: [(kind, hash, line, label)]} for every page with inline code,
+    whatever its policy says now."""
+    kinds = {"script", "handler", "url"} | ({"style", "style-attr"} if styles else set())
+    out = {}
+    for folder, subfolders, files in os.walk(root):
+        subfolders.sort()
+        for name in sorted(files):
+            if not name.lower().endswith((".html", ".htm")):
+                continue
+            path = os.path.join(folder, name)
+            rel = os.path.relpath(path, root).replace(os.sep, "/")
+            if exclude and excluded(rel, exclude):
+                continue
+            html, _ = read_page(path)
+            rows = []
+            for item in Page(html).items:
+                if item["kind"] in kinds:
+                    label = LABELS[item["kind"]]
+                    rows.append((item["kind"], digest(item["text"]), item["line"],
+                                 label % item["name"] if "%s" in label else label))
+            if rows:
+                out[rel] = rows
+    return out
+
+
+def suggestion(root, styles=False, exclude=()):
+    """The --suggest report: each page's hashes, then the directive lines that
+    would allow all of them. An element's hash is enough on its own; a
+    handler, style= attribute or javascript: URL also needs 'unsafe-hashes'."""
+    found = needed(root, styles, exclude)
+    if not found:
+        return "No inline code on any page: script-src 'self' needs no hashes."
+    lines, script, style = [], [], []
+    for page, rows in found.items():
+        for n, (kind, h, line, label) in enumerate(rows):
+            lines.append("%-40s %s  %s, line %d" % (page if n == 0 else "", h, label, line))
+            bucket = style if kind in ("style", "style-attr") else script
+            bucket.append((h, kind))
+    out = ["Hashes each page's inline code needs:", ""] + lines + [""]
+    for directive, bucket, attr_kinds in (("script-src", script, ("handler", "url")),
+                                          ("style-src", style, ("style-attr",))):
+        if not bucket:
+            continue
+        unique = list(dict.fromkeys(h for h, _ in bucket))
+        extra = " 'unsafe-hashes'" if any(k in attr_kinds for _, k in bucket) else ""
+        out.append("%s 'self'%s %s" % (directive, extra, " ".join(unique)))
+    if any(k in ("handler", "url", "style-attr") for rows in found.values() for k, _, _, _ in rows):
+        out += ["", "'unsafe-hashes' is there for the handlers, style= attributes or javascript: links "
+                    "above; moving them into files removes the need for it."]
+    return "\n".join(out)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
     ap.add_argument("root", help="the directory the site is served from")
@@ -651,7 +708,13 @@ def main(argv=None):
                     help="a netlify.toml, vercel.json or firebase.json to read policies from (repeatable; "
                          "found automatically in the site directory and the current directory)")
     ap.add_argument("--json", metavar="FILE", help="also write every finding to FILE as JSON")
+    ap.add_argument("--suggest", action="store_true",
+                    help="print the hashes each page's inline code needs, and a script-src (and, with "
+                         "--styles, style-src) line to paste into a policy; checks nothing")
     a = ap.parse_args(argv)
+    if a.suggest:
+        print(suggestion(a.root, styles=a.styles, exclude=a.exclude))
+        return 0
     errors, warnings, notes, pages = check(a.root, a.headers, styles=a.styles, exclude=a.exclude,
                                            configs=a.config)
     if a.fail_on_stale:

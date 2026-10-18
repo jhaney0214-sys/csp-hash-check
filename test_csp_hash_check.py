@@ -291,6 +291,29 @@ class Options(Site):
         self.assertIn(HASH, record["findings"][0]["message"])
 
 
+class Suggest(Site):
+    def test_it_lists_each_pages_hashes_and_one_line_that_allows_them_all(self):
+        self.page("index.html", "<script>a()</script>\n<script>b()</script>\n<script>c()</script>\n"
+                                '<button onclick="go()">x</button>')
+        self.page("blog/post.html", "<script>a()</script>")
+        text = c.suggestion(self.root)
+        rows = [l for l in text.splitlines() if ", line " in l]
+        self.assertEqual(len(rows), 5)
+        self.assertEqual(sum(1 for l in rows if l.startswith("index.html")), 1)  # named once, on its first row
+        directive = [l for l in text.splitlines() if l.startswith("script-src")][0]
+        self.assertIn("'unsafe-hashes'", directive)
+        for code in ("a()", "b()", "c()", "go()"):
+            self.assertEqual(directive.count(c.digest(code)), 1)
+        # And the line it suggests passes the check.
+        self.headers("/*\n  Content-Security-Policy: %s\n" % directive)
+        errors, warnings, _, _ = self.run_check()
+        self.assertEqual((errors, warnings), ([], []))
+
+    def test_a_site_with_no_inline_code_needs_no_hashes(self):
+        self.page("index.html", "<p>plain</p>")
+        self.assertIn("needs no hashes", c.suggestion(self.root))
+
+
 class Prefilter(Site):
     """Pages with nothing a policy could block are not parsed; nothing real may slip past that."""
 

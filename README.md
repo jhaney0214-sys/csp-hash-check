@@ -43,6 +43,17 @@ warning _headers:1  'sha256-q45lW+RZ+SStMbA0LFEjvaSHTrShlCQhrgv1E12Wrxc=' under 
 Or run it anywhere Python is: `python csp_hash_check.py public/`. It has no
 dependencies.
 
+Writing a policy, or updating one after an edit:
+
+```
+python csp_hash_check.py public/ --suggest
+```
+
+lists the hash each page's inline code needs, then one `script-src` line
+(and with `--styles`, a `style-src` line) that allows all of them, with
+`'unsafe-hashes'` added only when a handler, `style=` attribute or
+`javascript:` link needs it. It checks nothing. Since `v1.2.0`.
+
 ## What it checks
 
 - **Every inline script** (`<script>` with no `src`, including `type="module"`
