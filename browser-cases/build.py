@@ -174,6 +174,25 @@ def build():
          {"d": "ran", "x": "blocked"},
          "an <iframe srcdoc> document inherits the page's policy; its scripts need their hashes there")
 
+    escaped = '<!--\nvar t = "<script>x()</script>";\n%s;\n//-->' % mark("w")
+    case("script-with-a-comment-and-a-nested-tag",
+         page("script-src %s" % sha(escaped), "<script>%s</script>" % escaped),
+         {"w": "ran"},
+         "an old-style script in <!-- -->, holding \"<script></script>\" in a string: the hash is of all of it")
+
+    cdata = "<![CDATA[ if (1 < 2) { %s } ]]>" % mark("v")
+    case("svg-script-cdata",
+         page("script-src %s" % sha(" if (1 < 2) { %s } " % mark("v")),
+              "<svg><script>%s</script></svg>" % cdata),
+         {"v": "ran"},
+         "an SVG script's CDATA markers are not part of its text, so not of its hash")
+
+    case("svg-script-entity",
+         page("script-src %s" % sha("if (1 < 2) { %s }" % mark("y")),
+              "<svg><script>if (1 &lt; 2) { %s }</script></svg>" % mark("y")),
+         {"y": "ran"},
+         "in SVG, &lt; inside a script is decoded before hashing (it is not raw text there)")
+
     # The page's bytes are windows-1252; the policy holds the hash of the
     # script's text encoded as UTF-8, which is what CSP says a browser hashes.
     latin = "var café = 1;" + mark("e")

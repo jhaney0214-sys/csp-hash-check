@@ -34,10 +34,14 @@ def verdicts(name):
     finally:
         shutil.rmtree(root)
     flagged = {line for _, line, _ in errors}
-    out = {}
+    out, marked = {}, {}
     for number, text in enumerate(lines, 1):
         for mark in MARK.findall(text):
             out[mark] = out.get(mark, False) or number in flagged
+            marked.setdefault(number, []).append(mark)
+    # An error on a line with no mark is about code the browser has no
+    # opinion on here, such as a script cut short at the wrong </script>.
+    out["(an unmarked line)"] = sorted(line for line in flagged if line not in marked)
     return out
 
 
@@ -48,6 +52,8 @@ class AgreesWithTheBrowser(unittest.TestCase):
 def _make(name, observed):
     def test(self):
         found = verdicts(name)
+        self.assertEqual(found.pop("(an unmarked line)"), [],
+                         "%s: the checker reports lines no mark is on" % name)
         for mark, what in observed.items():
             self.assertIn(mark, found, "%s: no line marks %r" % (name, mark))
             self.assertEqual(found[mark], what == "blocked",

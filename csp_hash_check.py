@@ -35,6 +35,7 @@ runs inside GitHub Actions.
 
 import argparse
 import base64
+import html as html_module
 import fnmatch
 import hashlib
 import json
@@ -113,24 +114,31 @@ def script_type(attrs):
     return ""
 
 
-class Page(HTMLParser):
-    """Everything inline on one page that a policy can block, with its position.
+class _Parse(HTMLParser):
+    """One pass of html.parser over a page; Page() below runs one or two.
 
     items: dicts with kind (script, style, handler, style-attr, url), line,
     pos ((line, column), for ordering against <meta> policies), text (what
     is hashed) and name (the attribute, for handlers and URLs).
     metas: (pos, policy) for each <meta> policy a browser enforces.
     ignored: (line, why) for each <meta> policy a browser ignores.
+    scripts: (body start, where html.parser ended it, in svg or math) for
+    each <script>, so Page() can check the end against the browser's rules.
+
+    `source` is the page as written and `ends` maps a script's body start to
+    (its true end, in foreign content) when this pass reads a copy of the
+    page with those bodies blanked out (see Page).
     """
 
-    def __init__(self, html):
+    def __init__(self, html, source=None, ends=None):
         HTMLParser.__init__(self, convert_charrefs=True)
-        self.html = html
+        self.html, self.source, self.ends = html, source or html, ends or {}
         self.starts = [0] + [m.end() for m in re.finditer("\n", html)]
-        self.items, self.metas, self.ignored = [], [], []
+        self.items, self.metas, self.ignored, self.scripts = [], [], [], []
         self.in_head = True
         self.raw = 0              # depth inside RAW_TEXT elements
-        self.open = None          # (kind, pos, attrs, body start) of an open <script> or <style>
+        self.foreign = 0          # depth inside <svg> or <math>
+        self.open = None          # (kind, pos, attrs, body start, foreign) of an open <script> or <style>
         self.feed(html)
         self.close()
 
@@ -149,6 +157,8 @@ class Page(HTMLParser):
             return
         if tag == "body" or tag not in HEAD_TAGS:
             self.in_head = False
+        if tag in ("svg", "math"):
+            self.foreign += 1
         attrs = {}
         for name, value in attr_list:
             attrs.setdefault(name, value)        # the first of a repeated attribute wins
@@ -179,7 +189,7 @@ class Page(HTMLParser):
                 self.items.append(dict(item, line=pos[0], pos=pos, srcdoc=True, own_metas=own))
         if tag in ("script", "style"):
             start = self._offset(pos) + len(self.get_starttag_text() or "")
-            self.open = (tag, pos, attrs, start)
+            self.open = (tag, pos, attrs, start, self.foreign > 0)
         if tag in RAW_TEXT:
             self.raw = 1
 
@@ -187,6 +197,8 @@ class Page(HTMLParser):
         if tag in ("script", "style"):
             return                     # <script/> is a start tag in HTML; its body follows
         self.handle_starttag(tag, attrs)
+        if tag in ("svg", "math"):
+            self.foreign -= 1          # <svg/> opened and closed at once
 
     def handle_endtag(self, tag):
         if self.raw:
@@ -195,14 +207,128 @@ class Page(HTMLParser):
             return
         if tag == "head":
             self.in_head = False
+        if tag in ("svg", "math") and self.foreign:
+            self.foreign -= 1
         if self.open and tag == self.open[0]:
-            kind, pos, attrs, start = self.open
+            kind, pos, attrs, start, foreign = self.open
             self.open = None
-            body = parsed(self.html[start:self._offset(self.getpos())])
+            end = self._offset(self.getpos())
+            if kind == "script":
+                self.scripts.append((start, end, foreign))
+            if start in self.ends:
+                end, foreign = self.ends[start]
+            raw = self.source[start:end]
+            body = foreign_text(raw) if foreign else parsed(raw)
             if kind == "style":
                 self._add("style", pos, body, nonce=attrs.get("nonce"))
             elif attrs.get("src") is None and script_type(attrs) in JS_TYPES:
                 self._add("script", pos, body, nonce=attrs.get("nonce"))
+
+
+SCRIPT_DATA = re.compile(r"<!--|</script[\t\n\f\r />]", re.I)
+SCRIPT_ESCAPED = re.compile(r"-->|</script[\t\n\f\r />]|<script[\t\n\f\r />]", re.I)
+SCRIPT_DOUBLE = re.compile(r"-->|</script[\t\n\f\r />]", re.I)
+FOREIGN_SCRIPT = re.compile(r"<!\[CDATA\[|<!--|</script[\t\n\f\r />]", re.I)
+
+
+def html_script_end(html, i):
+    """Where a browser ends an HTML <script> whose body starts at i: the
+    tokenizer's script data, escaped and double-escaped states. A script
+    wrapped in <!-- --> that holds "<script></script>" in a string runs past
+    that inner </script> (browser-cases/script-with-a-comment-and-a-nested-tag),
+    where html.parser stops."""
+    state = SCRIPT_DATA
+    while True:
+        m = state.search(html, i)
+        if not m:
+            return len(html)
+        token = m.group(0).lower()
+        if state is SCRIPT_DATA:
+            if token.startswith("</"):
+                return m.start()
+            state = SCRIPT_ESCAPED
+        elif state is SCRIPT_ESCAPED:
+            if token == "-->":
+                state = SCRIPT_DATA
+            elif token.startswith("</"):
+                return m.start()
+            else:
+                state = SCRIPT_DOUBLE
+        else:
+            state = SCRIPT_DATA if token == "-->" else SCRIPT_ESCAPED
+        i = m.end() if token in ("<!--", "-->") else m.end() - 1
+
+
+def foreign_script_end(html, i):
+    """Where a <script> inside <svg> or <math> ends: at the first </script>
+    outside a CDATA section or a comment, which in foreign content are parsed."""
+    while True:
+        m = FOREIGN_SCRIPT.search(html, i)
+        if not m:
+            return len(html)
+        token = m.group(0).lower()
+        if token.startswith("</"):
+            return m.start()
+        close = "]]>" if token.startswith("<![") else "-->"
+        j = html.find(close, m.end())
+        if j < 0:
+            return len(html)
+        i = j + len(close)
+
+
+def foreign_text(raw):
+    """The text of a <script> in foreign content, as a browser hashes it:
+    CDATA sections kept without their markers, comments and tags dropped,
+    character references decoded (browser-cases/svg-script-*)."""
+    out, i = [], 0
+    while i < len(raw):
+        if raw.startswith("<![CDATA[", i):
+            j = raw.find("]]>", i + 9)
+            j = len(raw) if j < 0 else j
+            out.append(raw[i + 9:j])
+            i = j + 3
+        elif raw.startswith("<!--", i):
+            j = raw.find("-->", i + 4)
+            i = len(raw) if j < 0 else j + 3
+        elif raw[i] == "<" and re.match(r"</?[A-Za-z]", raw[i:i + 2]):
+            j = raw.find(">", i)
+            i = len(raw) if j < 0 else j + 1
+        else:
+            j = raw.find("<", i + 1)
+            j = len(raw) if j < 0 else j
+            out.append(html_module.unescape(raw[i:j]))
+            i = j
+    return parsed("".join(out))
+
+
+def Page(html):
+    """Everything inline on a page that a policy can block (see _Parse).
+
+    html.parser ends a <script> at its first </script>, and reads a script in
+    <svg> as raw text. A browser does neither always, so each script's end is
+    found again by the browser's rules; where any differs, or a script sits in
+    foreign content, the page is parsed a second time with those bodies
+    blanked (same length, same newlines), so the parser cannot misread them,
+    and their text is taken from the page as written.
+    """
+    first = _Parse(html)
+    ends = {}
+    for start, parser_end, foreign in first.scripts:
+        if any(s <= start < e for s, (e, _) in ends.items()):
+            continue                    # a "script" that was really inside an earlier one
+        end = foreign_script_end(html, start) if foreign else html_script_end(html, start)
+        if end != parser_end or foreign:
+            ends[start] = (end, foreign)
+    if not ends:
+        return first
+    pieces, at = [], 0
+    for start in sorted(ends):
+        end = ends[start][0]
+        pieces.append(html[at:start])
+        pieces.append(re.sub(r"[^\n]", " ", html[start:end]))
+        at = end
+    pieces.append(html[at:])
+    return _Parse("".join(pieces), source=html, ends=ends)
 
 
 def inline_scripts(html):

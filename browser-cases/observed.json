@@ -55,6 +55,9 @@
    "s": "ran",
    "n": "inert"
   },
+  "script-with-a-comment-and-a-nested-tag": {
+   "w": "ran"
+  },
   "srcdoc-inherits-the-policy": {
    "d": "ran",
    "x": "blocked"
@@ -69,6 +72,12 @@
   "strict-dynamic-unsafe-inline": {
    "s": "blocked",
    "h": "blocked"
+  },
+  "svg-script-cdata": {
+   "v": "ran"
+  },
+  "svg-script-entity": {
+   "y": "ran"
   },
   "type-with-parameters": {
    "p": "inert"

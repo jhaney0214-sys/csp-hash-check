@@ -97,6 +97,11 @@ lists the hash each page's inline code needs, then one `script-src` line
   **`javascript:` links**, which no script hash allows. They run under
   `'unsafe-inline'`, or under `'unsafe-hashes'` with their own hash listed;
   the error names that hash.
+- **Where a script really ends.** An old-style script wrapped in `<!-- -->`
+  that holds `"<script></script>"` in a string runs on past that inner tag,
+  and a script inside `<svg>` drops its `<![CDATA[` markers and decodes
+  `&lt;` before it is hashed. Both follow the HTML standard's tokenizer, and
+  both are browser cases.
 - **`<iframe srcdoc>` documents**, which inherit the page's policy, so their
   scripts and handlers need hashes in it. Errors from them say so.
 - **Only real event handlers.** An attribute that merely starts with `on`

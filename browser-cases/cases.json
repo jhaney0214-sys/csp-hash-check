@@ -140,6 +140,24 @@
   },
   "note": "an <iframe srcdoc> document inherits the page's policy; its scripts need their hashes there"
  },
+ "script-with-a-comment-and-a-nested-tag": {
+  "expect": {
+   "w": "ran"
+  },
+  "note": "an old-style script in <!-- -->, holding \"<script></script>\" in a string: the hash is of all of it"
+ },
+ "svg-script-cdata": {
+  "expect": {
+   "v": "ran"
+  },
+  "note": "an SVG script's CDATA markers are not part of its text, so not of its hash"
+ },
+ "svg-script-entity": {
+  "expect": {
+   "y": "ran"
+  },
+  "note": "in SVG, &lt; inside a script is decoded before hashing (it is not raw text there)"
+ },
  "windows-1252-page": {
   "expect": {
    "e": "ran"
