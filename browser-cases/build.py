@@ -117,6 +117,16 @@ def build():
          "<body>\n%s\n</body>\n</html>\n" % script("s"),
          {"s": "ran"}, "report-only in a meta tag is ignored altogether")
 
+    case("meta-comma",
+         page("script-src 'none', script-src 'unsafe-inline'", script("s")),
+         {"s": "blocked"},
+         "a comma in a <meta> policy: two policies (blocked), or one with stray tokens?")
+
+    case("meta-comma-reversed",
+         page("script-src 'unsafe-inline', script-src 'none'", script("s")),
+         {"s": "blocked"},
+         "the same, the other way round: blocked again means both halves are enforced")
+
     case("noscript",
          page("script-src %s" % sha(s), script("s") + "\n<noscript>%s</noscript>" % script("n")),
          {"s": "ran", "n": "blocked"},

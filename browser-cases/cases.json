@@ -69,6 +69,18 @@
   },
   "note": "report-only in a meta tag is ignored altogether"
  },
+ "meta-comma": {
+  "expect": {
+   "s": "blocked"
+  },
+  "note": "a comma in a <meta> policy: two policies (blocked), or one with stray tokens?"
+ },
+ "meta-comma-reversed": {
+  "expect": {
+   "s": "blocked"
+  },
+  "note": "the same, the other way round: blocked again means both halves are enforced"
+ },
  "noscript": {
   "expect": {
    "s": "ran",

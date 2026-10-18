@@ -216,6 +216,30 @@ class Handlers(Site):
         self.assertTrue(any("outside <head>" in n[2] for n in notes))
 
 
+class HeaderFiles(Site):
+    def test_cloudflares_detach_takes_the_policy_off(self):
+        self.page("index.html", "<script>%s</script>" % SCRIPT)
+        self.page("legacy/old.html", "<script>%s</script>" % SCRIPT)
+        self.headers("/*\n  Content-Security-Policy: script-src 'self'\n\n"
+                     "/legacy/*\n  ! Content-Security-Policy\n")
+        errors, _, notes, _ = self.run_check()
+        self.assertEqual([e[0] for e in errors], ["index.html"])
+        self.assertTrue(any(n[0].replace(os.sep, "/") == "legacy/old.html" for n in notes))
+
+    def test_a_comma_joins_two_policies_and_both_are_enforced(self):
+        self.page("index.html", "<script>%s</script>" % SCRIPT)
+        self.headers("/*\n  Content-Security-Policy: script-src 'unsafe-inline', script-src 'none'\n")
+        self.assertEqual(len(self.run_check()[0]), 1)
+        self.headers("/*\n  Content-Security-Policy: script-src 'unsafe-inline', img-src 'self'\n")
+        self.assertEqual(self.run_check()[0], [])
+
+    def test_a_stale_hash_is_reported_at_its_policys_line(self):
+        self.page("index.html", "<p>none</p>")
+        self.headers("# comment\n\n/*\n  X-Frame-Options: DENY\n  Content-Security-Policy: script-src %s\n" % HASH)
+        _, warnings, _, _ = self.run_check()
+        self.assertEqual([w[1] for w in warnings], [5])
+
+
 class Stale(Site):
     def test_an_unused_hash_is_a_warning_or_an_error_on_request(self):
         self.page("index.html", "<p>no scripts</p>")

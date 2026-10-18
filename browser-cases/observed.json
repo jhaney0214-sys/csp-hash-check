@@ -8,22 +8,69 @@
  "browser": "Chrome 152.0.7977.149 (the Claude desktop app's browser pane)",
  "date": "2026-10-18",
  "cases": {
-  "comment": {"s": "ran", "c": "inert"},
-  "handler-text-inside-a-script": {"s": "ran"},
-  "javascript-url-hash-only": {"s": "ran", "j": "blocked"},
-  "javascript-url-unsafe-hashes": {"j": "ran"},
-  "javascript-url-unsafe-inline": {"j": "ran"},
-  "legacy-javascript-type": {"s": "ran", "t": "blocked"},
-  "legacy-javascript-type-no-policy": {"t": "ran"},
-  "meta-after-the-script": {"before": "ran", "after": "blocked"},
-  "meta-in-the-body": {"s": "ran"},
-  "meta-report-only": {"s": "ran"},
-  "noscript": {"s": "ran", "n": "inert"},
-  "strict-dynamic-hash": {"s": "ran"},
-  "strict-dynamic-unsafe-inline": {"s": "blocked", "h": "blocked"},
-  "type-with-parameters": {"p": "inert"},
-  "unsafe-hashes-entity-decoded": {"q": "ran"},
-  "unsafe-hashes-with-the-handler-hash": {"h": "ran"},
-  "unsafe-hashes-without-the-handler-hash": {"s": "ran", "h": "blocked"}
+  "comment": {
+   "s": "ran",
+   "c": "inert"
+  },
+  "handler-text-inside-a-script": {
+   "s": "ran"
+  },
+  "javascript-url-hash-only": {
+   "s": "ran",
+   "j": "blocked"
+  },
+  "javascript-url-unsafe-hashes": {
+   "j": "ran"
+  },
+  "javascript-url-unsafe-inline": {
+   "j": "ran"
+  },
+  "legacy-javascript-type": {
+   "s": "ran",
+   "t": "blocked"
+  },
+  "legacy-javascript-type-no-policy": {
+   "t": "ran"
+  },
+  "meta-after-the-script": {
+   "before": "ran",
+   "after": "blocked"
+  },
+  "meta-comma": {
+   "s": "blocked"
+  },
+  "meta-comma-reversed": {
+   "s": "blocked"
+  },
+  "meta-in-the-body": {
+   "s": "ran"
+  },
+  "meta-report-only": {
+   "s": "ran"
+  },
+  "noscript": {
+   "s": "ran",
+   "n": "inert"
+  },
+  "strict-dynamic-hash": {
+   "s": "ran"
+  },
+  "strict-dynamic-unsafe-inline": {
+   "s": "blocked",
+   "h": "blocked"
+  },
+  "type-with-parameters": {
+   "p": "inert"
+  },
+  "unsafe-hashes-entity-decoded": {
+   "q": "ran"
+  },
+  "unsafe-hashes-with-the-handler-hash": {
+   "h": "ran"
+  },
+  "unsafe-hashes-without-the-handler-hash": {
+   "s": "ran",
+   "h": "blocked"
+  }
  }
 }

@@ -196,7 +196,17 @@ def is_hash(source):
 
 def parse_headers(text):
     """[(pattern, policy, line)] from a Netlify / Cloudflare Pages _headers file."""
-    rules, pattern = [], None
+    return _read_headers(text)[0]
+
+
+def detached(text):
+    """Patterns under which Cloudflare Pages' `! Content-Security-Policy` removes
+    the header that a broader rule set. Netlify has no such line."""
+    return _read_headers(text)[1]
+
+
+def _read_headers(text):
+    rules, detach, pattern = [], [], None
     for number, raw in enumerate(text.splitlines(), 1):
         line = raw.rstrip()
         if not line.strip() or line.lstrip().startswith("#"):
@@ -204,10 +214,22 @@ def parse_headers(text):
         if not raw[:1].isspace():
             pattern = line.strip()
             continue
-        name, _, value = line.strip().partition(":")
+        stripped = line.strip()
+        if pattern and stripped.startswith("!"):
+            if stripped[1:].strip().lower() == "content-security-policy":
+                detach.append(pattern)
+            continue
+        name, _, value = stripped.partition(":")
         if pattern and name.strip().lower() == "content-security-policy":
             rules.append((pattern, value.strip(), number))
-    return rules
+    return rules, detach
+
+
+def policies(value):
+    """The policies in one header or <meta> value. A comma separates policies,
+    and a browser enforces each (browser-cases/meta-comma*: blocked whichever
+    half comes first). A source expression never contains a comma."""
+    return [p.strip() for p in value.split(",") if p.strip()]
 
 
 def url_paths(rel):
@@ -327,12 +349,13 @@ def check(root, headers_file=None, styles=False):
     """(errors, warnings, notes, pages); the first three are lists of
     (file, line, message). With `styles`, inline styles are checked too."""
     errors, warnings, notes = [], [], []
-    rules = []
+    rules, detach = [], []
     headers_file = headers_file or os.path.join(root, "_headers")
     if os.path.exists(headers_file):
         with open(headers_file, encoding="utf-8") as fh:
-            rules = parse_headers(fh.read())
-    parsed_rules = [directives(p) for _, p, _ in rules]
+            rules, detach = _read_headers(fh.read())
+    # Each rule's value may hold several policies; all of them are the rule's.
+    parsed_rules = [[directives(one) for one in policies(p)] for _, p, _ in rules]
     used = {i: set() for i in range(len(rules))}
     kinds = {"script", "handler", "url"} | ({"style", "style-attr"} if styles else set())
     pages = 0
@@ -345,8 +368,11 @@ def check(root, headers_file=None, styles=False):
             rel = os.path.relpath(path, root)
             html = read_page(path)
             pages += 1
+            served = url_paths(rel)
             applying = [i for i, (pat, _, _) in enumerate(rules)
-                        if any(matches(pat, u) for u in url_paths(rel))]
+                        if any(matches(pat, u) for u in served)]
+            if any(matches(pat, u) for pat in detach for u in served):
+                applying = []                   # `! Content-Security-Policy` took the header off
             if not applying and "content-security-policy" not in html.lower():
                 scripts = len(SCRIPT_COUNT.findall(html))
                 if scripts:
@@ -367,10 +393,11 @@ def check(root, headers_file=None, styles=False):
                     continue
                 # Header policies govern the whole page; a <meta> policy only
                 # what the parser reaches after it.
-                policies = [(i, parsed_rules[i]) for i in applying] + \
-                           [(None, directives(p)) for pos, p in page.metas if pos < item["pos"]]
+                governing_policies = [(i, one) for i in applying for one in parsed_rules[i]] + \
+                    [(None, directives(one)) for pos, p in page.metas if pos < item["pos"]
+                     for one in policies(p)]
                 every, h = digests(item["text"]), digest(item["text"])
-                for i, policy in policies:
+                for i, policy in governing_policies:
                     directive, sources = governing(policy, item["kind"])
                     if sources is None:
                         continue
@@ -388,7 +415,10 @@ def check(root, headers_file=None, styles=False):
                     break                       # one error for each piece of code, naming a policy
     hfile = os.path.relpath(headers_file, root)
     for i, (pattern, _, line) in enumerate(rules):
-        d = parsed_rules[i]
+        d = {}
+        for one in parsed_rules[i]:
+            for name, sources in one.items():
+                d.setdefault(name, []).extend(sources)
         script_dirs = [n for n in ("script-src-elem", "script-src", "script-src-attr") if n in d]
         style_dirs = [n for n in ("style-src-elem", "style-src", "style-src-attr") if n in d]
         checks = [("script", script_dirs or (["default-src"] if "default-src" in d else []))]

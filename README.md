@@ -54,7 +54,9 @@ dependencies.
   `<meta http-equiv="Content-Security-Policy">` tags. A browser enforces every
   policy it is given, so a script has to pass all of them. A `<meta>` policy
   governs only what follows it, and only inside `<head>`; one in the body, or
-  marked report-only, is ignored, as browsers ignore it.
+  marked report-only, is ignored, as browsers ignore it. A comma separates
+  two policies in one value, and both are enforced. Cloudflare Pages'
+  `! Content-Security-Policy` under a path takes the header off there.
 - **Line endings as the browser reads them.** The HTML parser turns CRLF
   into LF before a script is hashed, so a page saved with Windows line
   endings is hashed on its LF text. (Since `v1.1.0`, after a browser refused
