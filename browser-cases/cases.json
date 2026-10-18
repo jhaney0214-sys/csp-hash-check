@@ -120,6 +120,26 @@
   },
   "note": "a type with parameters is not a JavaScript MIME type essence match; with no policy at all, it does not run"
  },
+ "static-nonce": {
+  "expect": {
+   "s": "ran",
+   "o": "blocked"
+  },
+  "note": "a nonce written into the page and the policy matches; it is no protection, but it runs"
+ },
+ "none-beside-a-hash": {
+  "expect": {
+   "s": "ran"
+  },
+  "note": "'none' is ignored once anything else is listed"
+ },
+ "srcdoc-inherits-the-policy": {
+  "expect": {
+   "d": "ran",
+   "x": "blocked"
+  },
+  "note": "an <iframe srcdoc> document inherits the page's policy; its scripts need their hashes there"
+ },
  "windows-1252-page": {
   "expect": {
    "e": "ran"

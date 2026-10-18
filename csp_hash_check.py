@@ -62,10 +62,36 @@ HEAD_TAGS = {"html", "head", "meta", "title", "link", "style", "script", "base",
 URL_ATTRS = {("a", "href"), ("area", "href"), ("iframe", "src"), ("frame", "src"),
              ("form", "action"), ("button", "formaction"), ("input", "formaction")}
 HASH_PREFIXES = ("'sha256-", "'sha384-", "'sha512-")
+# Event handler content attributes a browser compiles as script (HTML's
+# GlobalEventHandlers, WindowEventHandlers and DocumentAndElementEventHandlers,
+# SVG's animation events, and the prefixed and older ones browsers still run).
+# Any other on... attribute is not a handler; it is noted, not judged, so a
+# name missing here is said aloud rather than passed in silence.
+HANDLERS = set("""
+onabort onafterprint onanimationcancel onanimationend onanimationiteration onanimationstart onauxclick
+onbeforecopy onbeforecut onbeforeinput onbeforematch onbeforepaste onbeforeprint onbeforetoggle
+onbeforeunload onbegin onblur oncancel oncanplay oncanplaythrough onchange onclick onclose
+oncommand oncontentvisibilityautostatechange oncontextlost oncontextmenu oncontextrestored oncopy
+oncuechange oncut ondblclick ondrag ondragend ondragenter ondragexit ondragleave ondragover
+ondragstart ondrop ondurationchange onemptied onend onended onerror onfocus onfocusin onfocusout
+onformdata onfullscreenchange onfullscreenerror ongotpointercapture onhashchange oninput oninvalid
+onkeydown onkeypress onkeyup onlanguagechange onload onloadeddata onloadedmetadata onloadend
+onloadstart onlostpointercapture onmessage onmessageerror onmousedown onmouseenter onmouseleave
+onmousemove onmouseout onmouseover onmouseup onmousewheel onoffline ononline onpagehide
+onpagereveal onpageshow onpageswap onpaste onpause onplay onplaying onpointercancel onpointerdown
+onpointerenter onpointerleave onpointermove onpointerout onpointerover onpointerrawupdate
+onpointerup onpopstate onprogress onratechange onrejectionhandled onrepeat onreset onresize
+onscroll onscrollend onscrollsnapchange onscrollsnapchanging onsearch onsecuritypolicyviolation
+onseeked onseeking onselect onselectionchange onselectstart onshow onslotchange onstalled
+onstorage onsubmit onsuspend ontimeupdate ontoggle ontouchcancel ontouchend ontouchmove
+ontouchstart ontransitioncancel ontransitionend ontransitionrun ontransitionstart
+onunhandledrejection onunload onvolumechange onwaiting onwebkitanimationend
+onwebkitanimationiteration onwebkitanimationstart onwebkittransitionend onwheel onzoom
+""".split())
 # Anything a policy could block starts with one of these. A page with none,
 # and no <meta> policy, is not parsed: on a 13,069-page site that took the
 # check from 47 seconds to under 4, since one page held any script at all.
-CODE_HINT = re.compile(r"<script\b|[\s/\"']on[a-z]+\s*=|javascript:", re.I)
+CODE_HINT = re.compile(r"<script\b|srcdoc|[\s/\"']on[a-z]+\s*=|javascript:", re.I)
 STYLE_HINT = re.compile(r"<style\b|[\s/\"']style\s*=", re.I)
 SCRIPT_COUNT = re.compile(r"<script\b(?![^>]*\bsrc\s*=)[^>]*>", re.I)
 
@@ -111,8 +137,9 @@ class Page(HTMLParser):
     def _offset(self, pos):
         return self.starts[pos[0] - 1] + pos[1]
 
-    def _add(self, kind, pos, text, name=None):
-        self.items.append({"kind": kind, "line": pos[0], "pos": pos, "text": text, "name": name})
+    def _add(self, kind, pos, text, name=None, nonce=None):
+        self.items.append({"kind": kind, "line": pos[0], "pos": pos, "text": text, "name": name,
+                           "nonce": nonce})
 
     def handle_starttag(self, tag, attr_list):
         pos = self.getpos()
@@ -126,8 +153,11 @@ class Page(HTMLParser):
         for name, value in attr_list:
             attrs.setdefault(name, value)        # the first of a repeated attribute wins
         for name, value in attrs.items():
-            if name.startswith("on") and len(name) > 2:
+            if name in HANDLERS:
                 self._add("handler", pos, value or "", name)
+            elif name.startswith("on") and len(name) > 2 and value:
+                self.ignored.append((pos[0], "%s= is not an event handler a browser knows, so it was not "
+                                             "checked as one" % name))
             elif name == "style" and value is not None:
                 self._add("style-attr", pos, value, name)
             elif (tag, name) in URL_ATTRS and value and value.strip().lower().startswith("javascript:"):
@@ -139,6 +169,14 @@ class Page(HTMLParser):
                     self.metas.append((pos, attrs["content"]))
                 else:
                     self.ignored.append((pos[0], "a <meta> policy outside <head> is ignored by browsers"))
+        if tag == "iframe" and attrs.get("srcdoc"):
+            # An <iframe srcdoc> document inherits this page's policy
+            # (browser-cases/srcdoc-inherits-the-policy). Its own <meta>
+            # policies govern what follows them inside it.
+            inner = Page(attrs["srcdoc"])
+            for item in inner.items:
+                own = [p for at, p in inner.metas if at < item["pos"]]
+                self.items.append(dict(item, line=pos[0], pos=pos, srcdoc=True, own_metas=own))
         if tag in ("script", "style"):
             start = self._offset(pos) + len(self.get_starttag_text() or "")
             self.open = (tag, pos, attrs, start)
@@ -162,9 +200,9 @@ class Page(HTMLParser):
             self.open = None
             body = parsed(self.html[start:self._offset(self.getpos())])
             if kind == "style":
-                self._add("style", pos, body)
+                self._add("style", pos, body, nonce=attrs.get("nonce"))
             elif attrs.get("src") is None and script_type(attrs) in JS_TYPES:
-                self._add("script", pos, body)
+                self._add("script", pos, body, nonce=attrs.get("nonce"))
 
 
 def inline_scripts(html):
@@ -303,7 +341,7 @@ def style_sources(policy):
     return governing(policy, "style")
 
 
-def judge(sources, kind, every):
+def judge(sources, kind, every, nonce=None):
     """True (allowed), False (blocked), or 'nonce' (only a nonce could allow it,
     which a static file cannot show). `every` is the code's set of hashes.
 
@@ -321,8 +359,13 @@ def judge(sources, kind, every):
     dynamic = kind in ("script", "handler", "url") and "'strict-dynamic'" in lowered
     if "'unsafe-inline'" in lowered and not has_hash_or_nonce and not dynamic:
         return True
-    if kind in ELEMENTS and any(s.startswith("'nonce-") for s in lowered):
-        return "nonce"
+    nonces = [s[len("'nonce-"):-1] for s in sources if s.lower().startswith("'nonce-") and s.endswith("'")]
+    if kind in ELEMENTS and nonces:
+        if nonce is None:
+            return "nonce"                  # a server may add the attribute per response
+        # The attribute and the policy are both in the files read, so neither
+        # changes per response: the match is definite (browser-cases/static-nonce).
+        return "static-nonce" if nonce in nonces else False
     return False
 
 
@@ -332,6 +375,11 @@ def allows_inline(sources, hashed):
 
 
 def blocked_message(item, where, directive, h):
+    text = _blocked_message(item, where, directive, h)
+    return "in <iframe srcdoc>: " + text if item.get("srcdoc") else text
+
+
+def _blocked_message(item, where, directive, h):
     kind = item["kind"]
     if kind == "script":
         return "inline script blocked by %s (%s): add %s" % (where, directive, h)
@@ -597,13 +645,14 @@ def check(root, headers_file=None, styles=False, exclude=(), configs=()):
                 # what the parser reaches after it.
                 governing_policies = [(i, one) for i in applying for one in rules[i].parsed] + \
                     [(None, directives(one)) for pos, p in page.metas if pos < item["pos"]
-                     for one in policies(p)]
+                     for one in policies(p)] + \
+                    [(None, directives(one)) for p in item.get("own_metas", ()) for one in policies(p)]
                 every, h = digests(item["text"]), digest(item["text"])
                 for i, policy in governing_policies:
                     directive, sources = governing(policy, item["kind"])
                     if sources is None:
                         continue
-                    verdict = judge(sources, item["kind"], every)
+                    verdict = judge(sources, item["kind"], every, item.get("nonce"))
                     if verdict is True:
                         if i is not None:
                             used[i].update(matching(sources, every))
@@ -611,6 +660,11 @@ def check(root, headers_file=None, styles=False, exclude=(), configs=()):
                     if verdict == "nonce":
                         notes.append((rel, item["line"], "inline %s relies on a nonce, which a static check "
                                                          "cannot verify" % item["kind"]))
+                        continue
+                    if verdict == "static-nonce":
+                        warnings.append((rel, item["line"], "inline %s is allowed by a nonce written into the "
+                                         "file; a nonce that never changes protects nothing - use its "
+                                         "hash, %s" % (item["kind"], h)))
                         continue
                     where = os.path.basename(rules[i].source) if i is not None else "<meta> policy"
                     errors.append((rel, item["line"], blocked_message(item, where, directive, h)))

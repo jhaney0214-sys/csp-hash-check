@@ -97,6 +97,11 @@ lists the hash each page's inline code needs, then one `script-src` line
   **`javascript:` links**, which no script hash allows. They run under
   `'unsafe-inline'`, or under `'unsafe-hashes'` with their own hash listed;
   the error names that hash.
+- **`<iframe srcdoc>` documents**, which inherit the page's policy, so their
+  scripts and handlers need hashes in it. Errors from them say so.
+- **Only real event handlers.** An attribute that merely starts with `on`
+  (`onboarding=`) is not a handler; it is noted, so a name the checker does
+  not know is said aloud rather than passed in silence.
 - **Checked against a browser.** `browser-cases/` holds a page for each of
   these rules and `observed.json` what Chrome did with it;
   `test_browser_cases.py` fails if the checker ever disagrees. Since `v1.2.0`,
@@ -111,8 +116,12 @@ lists the hash each page's inline code needs, then one `script-src` line
 ## What it does not check
 
 - **Scripts added at run time** by other scripts. It reads the HTML you ship.
-- **Nonces.** A nonce is minted per response, so a static file cannot be
-  checked against one; pages that rely on one are noted, not judged.
+- **Nonces added by a server.** A nonce is minted per response, so a script
+  with no `nonce` attribute in the file, under a policy that lists nonces, is
+  noted, not judged. When the attribute and the policy are both in the files
+  read, nothing changes per response, so the match is judged, and a match is
+  a warning: a nonce that never changes protects nothing, and the warning
+  names the hash to use instead.
 - **Inline styles, unless you ask.** `styles: true` (or `--styles`) checks
   `<style>` elements against `style-src-elem`, `style-src`, then
   `default-src`, and `style=` attributes against `style-src-attr` and the

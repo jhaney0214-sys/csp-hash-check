@@ -156,6 +156,24 @@ def build():
          {"p": "blocked"},
          "a type with parameters is not a JavaScript MIME type essence match; with no policy at all, it does not run")
 
+    case("static-nonce",
+         page("script-src 'nonce-abc123'", '<script nonce="abc123">%s</script>' % mark("s")
+              + "\n" + '<script nonce="other">%s</script>' % mark("o")),
+         {"s": "ran", "o": "blocked"},
+         "a nonce written into the page and the policy matches; it is no protection, but it runs")
+
+    case("none-beside-a-hash",
+         page("script-src 'none' %s" % sha(s), script("s")),
+         {"s": "ran"}, "'none' is ignored once anything else is listed")
+
+    inner = "<script>parent.document.documentElement.dataset.%s='ran'</script>"
+    case("srcdoc-inherits-the-policy",
+         page("script-src %s" % sha("parent.document.documentElement.dataset.d='ran'"),
+              '<iframe srcdoc="%s"></iframe>\n<iframe srcdoc="%s"></iframe>'
+              % ((inner % "d").replace('"', "&quot;"), (inner % "x").replace('"', "&quot;"))),
+         {"d": "ran", "x": "blocked"},
+         "an <iframe srcdoc> document inherits the page's policy; its scripts need their hashes there")
+
     # The page's bytes are windows-1252; the policy holds the hash of the
     # script's text encoded as UTF-8, which is what CSP says a browser hashes.
     latin = "var café = 1;" + mark("e")

@@ -291,6 +291,35 @@ class Options(Site):
         self.assertIn(HASH, record["findings"][0]["message"])
 
 
+class Inherited(Site):
+    def test_an_escaped_srcdoc_script_is_checked_against_the_page(self):
+        inner = "parent.go()"
+        self.page("index.html", '<iframe srcdoc="&lt;script&gt;%s&lt;/script&gt;"></iframe>' % inner)
+        self.headers("/*\n  Content-Security-Policy: script-src 'self'\n")
+        errors = self.run_check()[0]
+        self.assertEqual(len(errors), 1)
+        self.assertTrue(errors[0][2].startswith("in <iframe srcdoc>"))
+        self.assertIn(c.digest(inner), errors[0][2])
+        self.headers("/*\n  Content-Security-Policy: script-src %s\n" % c.digest(inner))
+        self.assertEqual(self.run_check()[:2], ([], []))     # and its hash is not stale
+
+    def test_a_nonce_in_the_file_is_judged_and_warned_about(self):
+        self.page("index.html", '<script nonce="abc">a()</script>\n<script nonce="xyz">b()</script>')
+        self.headers("/*\n  Content-Security-Policy: script-src 'nonce-abc'\n")
+        errors, warnings, _, _ = self.run_check()
+        self.assertEqual([e[1] for e in errors], [2])
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("protects nothing", warnings[0][2])
+
+    def test_an_attribute_that_only_starts_with_on_is_not_a_handler(self):
+        self.page("index.html", '<div onboarding="step-1" onclick="go()">x</div>')
+        self.headers("/*\n  Content-Security-Policy: script-src 'self'\n")
+        errors, _, notes, _ = self.run_check()
+        self.assertEqual(len(errors), 1)
+        self.assertIn("onclick", errors[0][2])
+        self.assertTrue(any("onboarding=" in n[2] for n in notes))
+
+
 class Suggest(Site):
     def test_it_lists_each_pages_hashes_and_one_line_that_allows_them_all(self):
         self.page("index.html", "<script>a()</script>\n<script>b()</script>\n<script>c()</script>\n"
