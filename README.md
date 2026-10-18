@@ -34,7 +34,7 @@ warning _headers:1  'sha256-q45lW+RZ+SStMbA0LFEjvaSHTrShlCQhrgv1E12Wrxc=' under 
 | `path` | required | The directory the site is served from |
 | `headers` | `<path>/_headers` | A `_headers` file kept somewhere else |
 | `fail-on-stale` | `false` | Treat hashes no inline script uses any more as errors |
-| `styles` | `false` | Also check inline styles against `style-src` (not in `v1.0.0`; see below) |
+| `styles` | `false` | Also check inline styles against `style-src` (since `v1.1.0`; see below) |
 | `python-version` | `3.x` | Any 3.8 or later |
 
 Or run it anywhere Python is: `python csp_hash_check.py public/`. It has no
@@ -52,13 +52,13 @@ dependencies.
   policy it is given, so a script has to pass all of them.
 - **Line endings as the browser reads them.** The HTML parser turns CRLF
   into LF before a script is hashed, so a page saved with Windows line
-  endings is hashed on its LF text. (On `main` since 2026-10-18, after a
-  browser refused the CRLF hash; `v1` hashes the bytes, so on a CRLF page it
-  reports every script blocked and suggests a hash the browser rejects.)
+  endings is hashed on its LF text. (Since `v1.1.0`, after a browser refused
+  the CRLF hash; `v1.0.0` hashed the bytes, so on a CRLF page it reported
+  every script blocked and suggested a hash the browser rejects.)
 - **Hashes in any of CSP's three algorithms:** `sha256`, `sha384` and
-  `sha512`, with the algorithm name in any case. (On `main` since
-  2026-10-18; `v1` knows only `sha256`, and fails a `sha384` policy on every
-  page.) A missing hash is always suggested as `sha256`.
+  `sha512`, with the algorithm name in any case. (Since `v1.1.0`;
+  `v1.0.0` knew only `sha256` and failed a `sha384` policy on every page.) A
+  missing hash is always suggested as `sha256`.
 - **The browser's rules for falling back:** `script-src-elem`, then
   `script-src`, then `default-src`; `'unsafe-inline'` ignored once a hash or
   nonce is listed.
@@ -78,8 +78,7 @@ dependencies.
   `default-src`, and `style=` attributes against `style-src-attr` and the
   same fallbacks; a hash covers an element and never an attribute. It is off
   by default because many sites that hash their scripts allow inline styles
-  on purpose. Added 2026-10-13 on `main`; the `v1` tag does not have it until
-  a release moves it. Styles set from script (`element.style`) are not seen.
+  on purpose. Since `v1.1.0`. Styles set from script (`element.style`) are not seen.
 - **Headers set elsewhere**, by a server, CDN rule or framework config. It
   reads `_headers` and `<meta>` only.
 - **Whether the policy is a good one.** It checks that your scripts fit the
