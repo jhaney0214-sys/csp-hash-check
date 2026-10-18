@@ -38,7 +38,7 @@ warning _headers:1  'sha256-q45lW+RZ+SStMbA0LFEjvaSHTrShlCQhrgv1E12Wrxc=' under 
 | `config` | found | A `netlify.toml`, `vercel.json` or `firebase.json` elsewhere than the site directory or the repository root, where each is found on its own. Since `v1.2.0` |
 | `exclude` | none | Pages to skip, one glob per line; a bare name skips every folder of that name (`drafts`). Since `v1.2.0` |
 | `json` | none | Also write every finding to this file as JSON (`pages`, `passed`, `findings` with level, file, line, message). Since `v1.2.0` |
-| `python-version` | `3.x` | Any 3.8 or later |
+| `python-version` | `3.x` | Any 3.9 or later |
 
 Or run it anywhere Python is: `python csp_hash_check.py public/`. It has no
 dependencies.

@@ -27,7 +27,7 @@ inputs:
     description: Also write every finding to this file as JSON, for a later step to read.
     default: ""
   python-version:
-    description: Python to run it with. Any 3.8 or later.
+    description: Python to run it with. Any 3.9 or later.
     default: "3.x"
 
 runs:

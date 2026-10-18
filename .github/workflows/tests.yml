@@ -3,6 +3,22 @@ on: [push, pull_request]
 permissions:
   contents: read
 jobs:
+  # The page is read with html.parser, whose handling of scripts and comments
+  # has changed between Python versions, so every supported one runs the
+  # browser cases.
+  versions:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Unit tests and browser cases
+        run: python -m unittest test_csp_hash_check test_browser_cases -v
   test:
     runs-on: ubuntu-latest
     steps:
@@ -10,8 +26,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Unit tests
-        run: python -m unittest test_csp_hash_check test_browser_cases -v
       # The action itself, run the way a user's workflow would, against the
       # example site in this repository.
       - name: The action on the example site
