@@ -18,3 +18,13 @@ jobs:
         uses: ./
         with:
           path: examples/site
+      - name: The action's exclude and json inputs
+        uses: ./
+        with:
+          path: examples/site
+          exclude: |
+            drafts
+            vendor/*
+          json: csp-report.json
+      - name: The JSON report was written and passed
+        run: python -c "import json; r = json.load(open('csp-report.json')); assert r['passed'] and r['pages'] > 0, r"

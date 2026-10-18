@@ -35,7 +35,9 @@ runs inside GitHub Actions.
 
 import argparse
 import base64
+import fnmatch
 import hashlib
+import json
 import os
 import re
 import sys
@@ -379,9 +381,22 @@ def read_page(path):
                                                  "a browser's usual guess. Declare the charset to be sure")
 
 
-def check(root, headers_file=None, styles=False):
+def excluded(rel, patterns):
+    """Whether a page's path (relative, with forward slashes) matches any
+    --exclude pattern: a glob against the whole path, or a folder name."""
+    rel = rel.replace(os.sep, "/")
+    parts = rel.split("/")[:-1]
+    for pattern in patterns:
+        pattern = pattern.strip().strip("/")
+        if fnmatch.fnmatch(rel, pattern) or any(fnmatch.fnmatch(part, pattern) for part in parts):
+            return True
+    return False
+
+
+def check(root, headers_file=None, styles=False, exclude=()):
     """(errors, warnings, notes, pages); the first three are lists of
-    (file, line, message). With `styles`, inline styles are checked too."""
+    (file, line, message). With `styles`, inline styles are checked too.
+    Pages whose path matches an `exclude` pattern are not read."""
     errors, warnings, notes = [], [], []
     rules, detach = [], []
     headers_file = headers_file or os.path.join(root, "_headers")
@@ -400,6 +415,8 @@ def check(root, headers_file=None, styles=False):
                 continue
             path = os.path.join(folder, name)
             rel = os.path.relpath(path, root)
+            if exclude and excluded(rel, exclude):
+                continue
             try:
                 html, how = read_page(path)
             except OSError as exc:
@@ -483,10 +500,22 @@ def main(argv=None):
     ap.add_argument("--fail-on-stale", action="store_true", help="treat unused hashes as errors")
     ap.add_argument("--styles", action="store_true",
                     help="also check inline <style> elements and style= attributes against style-src")
+    ap.add_argument("--exclude", action="append", default=[], metavar="GLOB",
+                    help="skip pages whose path matches, or that sit in a folder that matches "
+                         "(repeatable; e.g. --exclude drafts --exclude 'vendor/*')")
+    ap.add_argument("--json", metavar="FILE", help="also write every finding to FILE as JSON")
     a = ap.parse_args(argv)
-    errors, warnings, notes, pages = check(a.root, a.headers, styles=a.styles)
+    errors, warnings, notes, pages = check(a.root, a.headers, styles=a.styles, exclude=a.exclude)
     if a.fail_on_stale:
         errors, warnings = errors + warnings, []
+    if a.json:
+        record = {"pages": pages, "passed": not errors,
+                  "findings": [{"level": level, "file": f.replace(os.sep, "/"), "line": line, "message": msg}
+                               for level, items in (("error", errors), ("warning", warnings), ("notice", notes))
+                               for f, line, msg in items]}
+        with open(a.json, "w", encoding="utf-8") as fh:
+            json.dump(record, fh, indent=1)
+            fh.write("\n")
     gh = os.environ.get("GITHUB_ACTIONS") == "true"
     for kind, items in (("error", errors), ("warning", warnings), ("notice", notes)):
         for f, line, msg in items:

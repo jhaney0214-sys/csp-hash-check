@@ -35,6 +35,8 @@ warning _headers:1  'sha256-q45lW+RZ+SStMbA0LFEjvaSHTrShlCQhrgv1E12Wrxc=' under 
 | `headers` | `<path>/_headers` | A `_headers` file kept somewhere else |
 | `fail-on-stale` | `false` | Treat hashes no inline script uses any more as errors |
 | `styles` | `false` | Also check inline styles against `style-src` (since `v1.1.0`; see below) |
+| `exclude` | none | Pages to skip, one glob per line; a bare name skips every folder of that name (`drafts`). Since `v1.2.0` |
+| `json` | none | Also write every finding to this file as JSON (`pages`, `passed`, `findings` with level, file, line, message). Since `v1.2.0` |
 | `python-version` | `3.x` | Any 3.8 or later |
 
 Or run it anywhere Python is: `python csp_hash_check.py public/`. It has no

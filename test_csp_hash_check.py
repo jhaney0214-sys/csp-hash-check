@@ -216,6 +216,27 @@ class Handlers(Site):
         self.assertTrue(any("outside <head>" in n[2] for n in notes))
 
 
+class Options(Site):
+    def test_exclude_skips_a_folder_or_a_glob(self):
+        for rel in ("index.html", "drafts/a.html", "vendor/lib/demo.html", "notes.htm"):
+            self.page(rel, "<script>%s</script>" % SCRIPT)
+        self.headers("/*\n  Content-Security-Policy: script-src 'self'\n")
+        errors, _, _, pages = c.check(self.root, exclude=["drafts", "vendor/*", "*.htm"])
+        self.assertEqual(([e[0] for e in errors], pages), (["index.html"], 1))
+
+    def test_json_writes_every_finding(self):
+        import json
+        self.page("index.html", "<script>%s</script>" % SCRIPT)
+        self.headers("/*\n  Content-Security-Policy: script-src 'self' %s\n" % c.digest("old"))
+        out = os.path.join(self.root, "report.json")
+        self.assertEqual(c.main([self.root, "--json", out]), 1)
+        with open(out, encoding="utf-8") as fh:
+            record = json.load(fh)
+        self.assertEqual((record["pages"], record["passed"]), (1, False))
+        self.assertEqual(sorted(f["level"] for f in record["findings"]), ["error", "warning"])
+        self.assertIn(HASH, record["findings"][0]["message"])
+
+
 class Encodings(Site):
     """The hash is of the UTF-8 encoding of the text the browser decoded."""
 
