@@ -291,6 +291,21 @@ class Options(Site):
         self.assertIn(HASH, record["findings"][0]["message"])
 
 
+class Prefilter(Site):
+    """Pages with nothing a policy could block are not parsed; nothing real may slip past that."""
+
+    def test_handlers_written_without_a_space_are_still_found(self):
+        self.headers("/*\n  Content-Security-Policy: script-src 'self'\n")
+        for html in ('<img/onerror=go()>', '<a href="x"onclick="go()">x</a>', "<a href='javascript:go()'>x</a>"):
+            self.page("index.html", html)
+            self.assertEqual(len(self.run_check()[0]), 1, html)
+
+    def test_a_style_attribute_after_a_quote_is_found(self):
+        self.headers("/*\n  Content-Security-Policy: style-src 'self'\n")
+        self.page("index.html", '<p class="a"style="color:red">x</p>')
+        self.assertEqual(len(c.check(self.root, styles=True)[0]), 1)
+
+
 class Encodings(Site):
     """The hash is of the UTF-8 encoding of the text the browser decoded."""
 
