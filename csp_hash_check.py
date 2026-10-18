@@ -393,18 +393,155 @@ def excluded(rel, patterns):
     return False
 
 
-def check(root, headers_file=None, styles=False, exclude=()):
+class Rule(object):
+    """One Content-Security-Policy header set for a path pattern, in one file."""
+
+    def __init__(self, pattern, policy, line, source, match):
+        self.pattern, self.policy, self.line, self.source = pattern, policy, line, source
+        self.applies = match
+        # A value may hold several policies; all of them are the rule's.
+        self.parsed = [directives(one) for one in policies(policy)]
+
+
+def line_of(text, needle):
+    """The line on which `needle` first appears in `text`, or 1."""
+    at = text.find(needle)
+    return text.count("\n", 0, at) + 1 if at >= 0 else 1
+
+
+def vercel_regex(source):
+    """A regular expression for a vercel.json `source` (path-to-regexp):
+    `/:slug`, `/:path*`, `/:path+`, `/:id?`, `/:id(\\d+)` and bare `(.*)`."""
+    token = re.compile(r"(/?):(\w+)(?:\(((?:[^()]|\([^()]*\))*)\))?([?*+])?"
+                       r"|\(((?:[^()]|\([^()]*\))*)\)([?*+])?")
+    out, pos = "", 0
+    for m in token.finditer(source):
+        out += re.escape(source[pos:m.start()])
+        if m.group(2):
+            slash, segment, mod = re.escape(m.group(1)), "(?:%s)" % (m.group(3) or "[^/]+"), m.group(4)
+            if mod in ("*", "+"):
+                part = "%s%s(?:/%s)*" % (slash, segment, segment)
+            else:
+                part = slash + segment
+            out += "(?:%s)?" % part if mod in ("*", "?") else part
+        else:
+            out += "(?:%s)%s" % (m.group(5), m.group(6) or "")
+        pos = m.end()
+    return "^" + out + re.escape(source[pos:]) + "$"
+
+
+def glob_regex(pattern):
+    """A regular expression for a firebase.json `source` glob: `**`, `*`, `?`,
+    `{a,b}` and the extglob forms `@(a|b)`, `*(a)`, `+(a)`, `?(a)`."""
+    out, i = "", 0
+    while i < len(pattern):
+        ch = pattern[i]
+        if ch in "@*+?!" and pattern[i + 1:i + 2] == "(":
+            end = pattern.find(")", i)
+            body = "|".join(re.escape(x) for x in pattern[i + 2:end].split("|"))
+            suffix = {"@": "", "*": "*", "+": "+", "?": "?", "!": ""}[ch]
+            out += ("(?!(?:%s))[^/]*" % body) if ch == "!" else "(?:%s)%s" % (body, suffix)
+            i = end + 1
+        elif pattern.startswith("**", i):
+            out += ".*"
+            i += 2
+        elif ch == "*":
+            out += "[^/]*"
+            i += 1
+        elif ch == "?":
+            out += "[^/]"
+            i += 1
+        elif ch == "{":
+            end = pattern.find("}", i)
+            out += "(?:%s)" % "|".join(re.escape(x) for x in pattern[i + 1:end].split(","))
+            i = end + 1
+        else:
+            out += re.escape(ch)
+            i += 1
+    return "^/?" + out.lstrip("/") + "$" if not out.startswith(".*") else "^" + out + "$"
+
+
+def _csp_values(pairs):
+    """The Content-Security-Policy values among (name, value) pairs."""
+    return [v for k, v in pairs if str(k).strip().lower() == "content-security-policy" and v]
+
+
+def rules_from(path):
+    """([Rule], [detach pattern], note or None) from one policy file, by its name:
+    _headers (Netlify and Cloudflare Pages), netlify.toml, vercel.json, firebase.json."""
+    with open(path, encoding="utf-8") as fh:
+        text = fh.read()
+    name = os.path.basename(path).lower()
+    if name == "netlify.toml":
+        try:
+            import tomllib
+        except ImportError:
+            return [], [], "netlify.toml needs Python 3.11 or later to read (tomllib); not read"
+        data = tomllib.loads(text)
+        rules = []
+        for block in data.get("headers") or []:
+            pattern = block.get("for")
+            for value in _csp_values((block.get("values") or {}).items()):
+                rules.append(Rule(pattern, " ".join(value.split()), line_of(text, pattern), path,
+                                  lambda p, pat=pattern: matches(pat, p)))
+        return rules, [], None
+    if name == "vercel.json":
+        rules = []
+        for block in json.loads(text).get("headers") or []:
+            pattern, rx = block.get("source"), re.compile(vercel_regex(block.get("source") or ""))
+            for value in _csp_values((h.get("key"), h.get("value")) for h in block.get("headers") or []):
+                rules.append(Rule(pattern, value, line_of(text, '"%s"' % pattern), path,
+                                  lambda p, rx=rx: rx.match(p) is not None))
+        return rules, [], None
+    if name == "firebase.json":
+        hosting = json.loads(text).get("hosting") or []
+        rules = []
+        for site in hosting if isinstance(hosting, list) else [hosting]:
+            for block in site.get("headers") or []:
+                pattern = block.get("source") or block.get("glob") or block.get("regex")
+                rx = re.compile(block["regex"] if "regex" in block else glob_regex(pattern or ""))
+                for value in _csp_values((h.get("key"), h.get("value")) for h in block.get("headers") or []):
+                    rules.append(Rule(pattern, value, line_of(text, '"%s"' % pattern), path,
+                                      lambda p, rx=rx: rx.search(p) is not None))
+        return rules, [], None
+    found, detach = _read_headers(text)
+    return ([Rule(pattern, policy, line, path, lambda p, pat=pattern: matches(pat, p))
+             for pattern, policy, line in found], detach, None)
+
+
+CONFIG_NAMES = ("netlify.toml", "vercel.json", "firebase.json")
+
+
+def policy_files(root, headers_file=None, configs=()):
+    """The policy files to read: the _headers file, any given with --config, and
+    netlify.toml, vercel.json or firebase.json found in the site directory or
+    in the directory the check runs from (where they usually live)."""
+    found = [headers_file or os.path.join(root, "_headers")] + list(configs)
+    for folder in (root, os.getcwd()):
+        found += [os.path.join(folder, n) for n in CONFIG_NAMES]
+    out, seen = [], set()
+    for path in found:
+        key = os.path.normcase(os.path.abspath(path))
+        if key not in seen and os.path.isfile(path):
+            seen.add(key)
+            out.append(path)
+    return out
+
+
+def check(root, headers_file=None, styles=False, exclude=(), configs=()):
     """(errors, warnings, notes, pages); the first three are lists of
     (file, line, message). With `styles`, inline styles are checked too.
-    Pages whose path matches an `exclude` pattern are not read."""
+    Pages whose path matches an `exclude` pattern are not read. Policies come
+    from `headers_file` (default <root>/_headers), `configs`, and any
+    netlify.toml, vercel.json or firebase.json found beside the site."""
     errors, warnings, notes = [], [], []
     rules, detach = [], []
-    headers_file = headers_file or os.path.join(root, "_headers")
-    if os.path.exists(headers_file):
-        with open(headers_file, encoding="utf-8") as fh:
-            rules, detach = _read_headers(fh.read())
-    # Each rule's value may hold several policies; all of them are the rule's.
-    parsed_rules = [[directives(one) for one in policies(p)] for _, p, _ in rules]
+    for path in policy_files(root, headers_file, configs):
+        found, cut, note = rules_from(path)
+        rules += found
+        detach += cut
+        if note:
+            notes.append((os.path.relpath(path, root), 1, note))
     used = {i: set() for i in range(len(rules))}
     kinds = {"script", "handler", "url"} | ({"style", "style-attr"} if styles else set())
     pages = 0
@@ -426,8 +563,7 @@ def check(root, headers_file=None, styles=False, exclude=()):
                 notes.append((rel, 1, how))
             pages += 1
             served = url_paths(rel)
-            applying = [i for i, (pat, _, _) in enumerate(rules)
-                        if any(matches(pat, u) for u in served)]
+            applying = [i for i, rule in enumerate(rules) if any(rule.applies(u) for u in served)]
             if any(matches(pat, u) for pat in detach for u in served):
                 applying = []                   # `! Content-Security-Policy` took the header off
             if not applying and "content-security-policy" not in html.lower():
@@ -450,7 +586,7 @@ def check(root, headers_file=None, styles=False, exclude=()):
                     continue
                 # Header policies govern the whole page; a <meta> policy only
                 # what the parser reaches after it.
-                governing_policies = [(i, one) for i in applying for one in parsed_rules[i]] + \
+                governing_policies = [(i, one) for i in applying for one in rules[i].parsed] + \
                     [(None, directives(one)) for pos, p in page.metas if pos < item["pos"]
                      for one in policies(p)]
                 every, h = digests(item["text"]), digest(item["text"])
@@ -467,13 +603,12 @@ def check(root, headers_file=None, styles=False, exclude=()):
                         notes.append((rel, item["line"], "inline %s relies on a nonce, which a static check "
                                                          "cannot verify" % item["kind"]))
                         continue
-                    where = "_headers" if i is not None else "<meta> policy"
+                    where = os.path.basename(rules[i].source) if i is not None else "<meta> policy"
                     errors.append((rel, item["line"], blocked_message(item, where, directive, h)))
                     break                       # one error for each piece of code, naming a policy
-    hfile = os.path.relpath(headers_file, root)
-    for i, (pattern, _, line) in enumerate(rules):
+    for i, rule in enumerate(rules):
         d = {}
-        for one in parsed_rules[i]:
+        for one in rule.parsed:
             for name, sources in one.items():
                 d.setdefault(name, []).extend(sources)
         script_dirs = [n for n in ("script-src-elem", "script-src", "script-src-attr") if n in d]
@@ -488,8 +623,8 @@ def check(root, headers_file=None, styles=False, exclude=()):
                 for s in d[directive]:
                     if is_hash(s) and s not in used[i] and s not in reported:
                         reported.add(s)
-                        warnings.append((hfile, line, "%s under %s matches no inline %s: stale?"
-                                         % (s, pattern, what)))
+                        warnings.append((os.path.relpath(rule.source, root), rule.line,
+                                         "%s under %s matches no inline %s: stale?" % (s, rule.pattern, what)))
     return errors, warnings, notes, pages
 
 
@@ -503,9 +638,13 @@ def main(argv=None):
     ap.add_argument("--exclude", action="append", default=[], metavar="GLOB",
                     help="skip pages whose path matches, or that sit in a folder that matches "
                          "(repeatable; e.g. --exclude drafts --exclude 'vendor/*')")
+    ap.add_argument("--config", action="append", default=[], metavar="FILE",
+                    help="a netlify.toml, vercel.json or firebase.json to read policies from (repeatable; "
+                         "found automatically in the site directory and the current directory)")
     ap.add_argument("--json", metavar="FILE", help="also write every finding to FILE as JSON")
     a = ap.parse_args(argv)
-    errors, warnings, notes, pages = check(a.root, a.headers, styles=a.styles, exclude=a.exclude)
+    errors, warnings, notes, pages = check(a.root, a.headers, styles=a.styles, exclude=a.exclude,
+                                           configs=a.config)
     if a.fail_on_stale:
         errors, warnings = errors + warnings, []
     if a.json:

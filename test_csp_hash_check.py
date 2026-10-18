@@ -216,6 +216,60 @@ class Handlers(Site):
         self.assertTrue(any("outside <head>" in n[2] for n in notes))
 
 
+class OtherHosts(Site):
+    """Policies set in netlify.toml, vercel.json or firebase.json, found beside the site."""
+
+    def write(self, name, text):
+        with open(os.path.join(self.root, name), "w", encoding="utf-8") as fh:
+            fh.write(text)
+
+    def test_netlify_toml_with_a_multiline_policy(self):
+        try:
+            import tomllib  # noqa: F401
+        except ImportError:
+            self.skipTest("tomllib needs Python 3.11")
+        self.page("index.html", "<script>%s</script>" % SCRIPT)
+        self.page("blog/post.html", "<script>%s// edited\n</script>" % SCRIPT)
+        self.write("netlify.toml", '[build]\n  publish = "."\n\n[[headers]]\n  for = "/*"\n  [headers.values]\n'
+                                   "    Content-Security-Policy = '''\n      default-src 'self';\n"
+                                   "      script-src %s\n    '''\n" % HASH)
+        errors, warnings, _, _ = self.run_check()
+        self.assertEqual([e[0].replace(os.sep, "/") for e in errors], ["blog/post.html"])
+        self.assertIn("netlify.toml", errors[0][2])
+        self.assertEqual(warnings, [])
+
+    def test_vercel_json_and_its_path_patterns(self):
+        import json
+        self.page("index.html", "<script>%s</script>" % SCRIPT)
+        self.page("docs/a/b.html", "<script>%s</script>" % SCRIPT)
+        self.write("vercel.json", json.dumps({"headers": [
+            {"source": "/docs/:path*", "headers": [
+                {"key": "Content-Security-Policy", "value": "script-src 'self'"}]}]}, indent=2))
+        errors, _, notes, _ = self.run_check()
+        self.assertEqual([e[0].replace(os.sep, "/") for e in errors], ["docs/a/b.html"])
+        self.assertIn("vercel.json", errors[0][2])
+        rx = __import__("re").compile(c.vercel_regex("/blog/:slug"))
+        self.assertTrue(rx.match("/blog/hello"))
+        self.assertFalse(rx.match("/blog/a/b"))
+        rx = __import__("re").compile(c.vercel_regex("/(.*)"))
+        self.assertTrue(rx.match("/anything/at/all"))
+        rx = __import__("re").compile(c.vercel_regex("/docs/:path*"))
+        self.assertTrue(rx.match("/docs") and rx.match("/docs/a/b"))
+
+    def test_firebase_json_globs(self):
+        import json
+        self.page("index.html", "<script>%s</script>" % SCRIPT)
+        self.page("app/page.html", "<script>%s</script>" % SCRIPT)
+        self.write("firebase.json", json.dumps({"hosting": {"public": ".", "headers": [
+            {"source": "/app/**", "headers": [
+                {"key": "Content-Security-Policy", "value": "script-src 'self'"}]}]}}, indent=2))
+        errors, _, _, _ = self.run_check()
+        self.assertEqual([e[0].replace(os.sep, "/") for e in errors], ["app/page.html"])
+        rx = __import__("re").compile(c.glob_regex("**/*.@(html|htm)"))
+        self.assertTrue(rx.search("/a/b/page.htm"))
+        self.assertFalse(rx.search("/a/b/page.png"))
+
+
 class Options(Site):
     def test_exclude_skips_a_folder_or_a_glob(self):
         for rel in ("index.html", "drafts/a.html", "vendor/lib/demo.html", "notes.htm"):

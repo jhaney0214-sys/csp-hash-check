@@ -35,6 +35,7 @@ warning _headers:1  'sha256-q45lW+RZ+SStMbA0LFEjvaSHTrShlCQhrgv1E12Wrxc=' under 
 | `headers` | `<path>/_headers` | A `_headers` file kept somewhere else |
 | `fail-on-stale` | `false` | Treat hashes no inline script uses any more as errors |
 | `styles` | `false` | Also check inline styles against `style-src` (since `v1.1.0`; see below) |
+| `config` | found | A `netlify.toml`, `vercel.json` or `firebase.json` elsewhere than the site directory or the repository root, where each is found on its own. Since `v1.2.0` |
 | `exclude` | none | Pages to skip, one glob per line; a bare name skips every folder of that name (`drafts`). Since `v1.2.0` |
 | `json` | none | Also write every finding to this file as JSON (`pages`, `passed`, `findings` with level, file, line, message). Since `v1.2.0` |
 | `python-version` | `3.x` | Any 3.8 or later |
@@ -50,10 +51,15 @@ dependencies.
   blocks such as JSON-LD, a type with parameters, and anything inside an HTML
   comment or a `<noscript>`. Markup written inside a script's strings is not
   mistaken for handlers. The page is read with an HTML parser, not patterns.
-- **Policies from two places:** a Netlify or Cloudflare Pages `_headers` file,
-  with its `*` and `:placeholder` path patterns matched against the URL each
-  file is served at (`/about.html`, `/about`, `/docs/`), and
-  `<meta http-equiv="Content-Security-Policy">` tags. A browser enforces every
+- **Policies from where static hosts keep them:** a Netlify or Cloudflare
+  Pages `_headers` file, with its `*` and `:placeholder` path patterns matched
+  against the URL each file is served at (`/about.html`, `/about`, `/docs/`);
+  `netlify.toml` (`[[headers]]`, needs Python 3.11 for `tomllib`);
+  `vercel.json` (`headers`, with `/:path*`-style sources); `firebase.json`
+  (`hosting.headers`, with `**` and `@(a|b)` globs); and
+  `<meta http-equiv="Content-Security-Policy">` tags. The three config files
+  are found in the site directory or the directory the check runs from; a
+  rule's `has` or `missing` conditions (Vercel) are not evaluated. A browser enforces every
   policy it is given, so a script has to pass all of them. A `<meta>` policy
   governs only what follows it, and only inside `<head>`; one in the body, or
   marked report-only, is ignored, as browsers ignore it. A comma separates

@@ -17,6 +17,9 @@ inputs:
   styles:
     description: Also check inline <style> elements and style= attributes against style-src.
     default: "false"
+  config:
+    description: A netlify.toml, vercel.json or firebase.json to read policies from, if it is not in the site directory or the repository root (where it is found on its own).
+    default: ""
   exclude:
     description: Pages to skip, one glob per line; a bare name skips every folder called that (e.g. drafts).
     default: ""
@@ -44,12 +47,14 @@ runs:
         CSP_STYLES: ${{ inputs.styles }}
         CSP_EXCLUDE: ${{ inputs.exclude }}
         CSP_JSON: ${{ inputs.json }}
+        CSP_CONFIG: ${{ inputs.config }}
       run: |
         args=("$CSP_PATH")
         if [ -n "$CSP_HEADERS" ]; then args+=(--headers "$CSP_HEADERS"); fi
         if [ "$CSP_STALE" = "true" ]; then args+=(--fail-on-stale); fi
         if [ "$CSP_STYLES" = "true" ]; then args+=(--styles); fi
         if [ -n "$CSP_JSON" ]; then args+=(--json "$CSP_JSON"); fi
+        if [ -n "$CSP_CONFIG" ]; then args+=(--config "$CSP_CONFIG"); fi
         while IFS= read -r pattern; do
           pattern="${pattern#"${pattern%%[![:space:]]*}"}"; pattern="${pattern%"${pattern##*[![:space:]]}"}"
           if [ -n "$pattern" ]; then args+=(--exclude "$pattern"); fi
