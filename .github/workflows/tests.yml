@@ -26,6 +26,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      # A user's later steps must still run on the Python they set up. Found
+      # by Assay, 2026-10-19: the action's own setup-python put 3.x (3.15) on
+      # the job's PATH, and the tests after it ran without numpy.
+      - name: Note the caller's Python
+        run: echo "CALLER_PY=$(command -v python) $(python --version)" >> "$GITHUB_ENV"
       # The action itself, run the way a user's workflow would, against the
       # example site in this repository.
       - name: The action on the example site
@@ -42,3 +47,9 @@ jobs:
           json: csp-report.json
       - name: The JSON report was written and passed
         run: python -c "import json; r = json.load(open('csp-report.json')); assert r['passed'] and r['pages'] > 0, r"
+      - name: The action left the caller's Python alone
+        run: |
+          now="$(command -v python) $(python --version)"
+          echo "before: $CALLER_PY"
+          echo "after:  $now"
+          test "$now" = "$CALLER_PY"
