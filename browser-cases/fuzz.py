@@ -31,6 +31,9 @@ OUT = os.path.join(HERE, "pages", "fuzz")
 MANIFEST = os.path.join(HERE, "fuzz-manifest.json")
 RESULTS = os.path.join(HERE, "fuzz-results.json")
 sys.path.insert(0, os.path.dirname(HERE))
+# Round two (--styles) adds inline styles, srcdoc, nonces, foreignObject and
+# more; a style mark is read from the marked element's computed width.
+STYLES = "--styles" in sys.argv
 
 
 def sha(text):
@@ -44,7 +47,28 @@ def mark(m):
 def snippet(r, m):
     """(html, guessed source text or None, kind) for one piece of inline code setting mark m."""
     body = mark(m)
-    choice = r.randrange(16)
+    choice = r.randrange(24 if STYLES else 16)
+    if choice == 16:
+        css = "#%s{display:block;width:7px}" % m
+        return '<style>%s</style><i id="%s"></i>' % (css, m), css, "style"
+    if choice == 17:
+        css = "display:block;width:7px"
+        return '<i id="%s" style="%s"></i>' % (m, css), css, "style-attr"
+    if choice == 18:
+        inner = "parent.document.documentElement.dataset.%s='ran'" % m
+        return '<iframe srcdoc="<script>%s</script>"></iframe>' % inner, inner, "script"
+    if choice == 19:
+        return '<script nonce="%s">%s</script>' % (r.choice(["x", "y"]), body), body, "script"
+    if choice == 20:
+        text = "/* &amp; */ %s" % body
+        return "<svg><foreignObject><script>%s</script></foreignObject></svg>" % text, text, "script"
+    if choice == 21:
+        return "<SCRIPT>%s</SCRIPT >" % body, body, "script"
+    if choice == 22:
+        return '<img src="missing.png" alt="" onerror="%s" onerror="void 0">' % body, body, "handler"
+    if choice == 23:
+        text = "/* &amp; */ %s" % body
+        return "<math><mtext><script>%s</script></mtext></math>" % text, text, "script"
     if choice == 0:
         return "<script>%s</script>" % body, body, "script"
     if choice == 1:
@@ -100,6 +124,10 @@ def policy(r, guesses):
     r.shuffle(parts)
     directive = r.choice(["script-src", "script-src", "default-src", "script-src-elem", "script-src-attr"])
     value = "%s %s" % (directive, " ".join(parts))
+    if STYLES and r.random() < 0.7:
+        extra = [p for p in parts if r.random() < 0.6]
+        extra += [k for k in ("'unsafe-inline'", "'unsafe-hashes'", "'nonce-x'") if r.random() < 0.3]
+        value += "; %s %s" % (r.choice(["style-src", "style-src-elem", "style-src-attr"]), " ".join(extra))
     if r.random() < 0.15:
         value += ", script-src 'unsafe-inline'"
     return value
@@ -129,7 +157,7 @@ def make(count, seed):
                 fh.write(page(pv, [h for h, _, _ in made], crlf))
         manifest[name] = {"marks": marks, "policy": value, "crlf": crlf}
     with open(MANIFEST, "w", encoding="utf-8") as fh:
-        json.dump({"seed": seed, "pages": manifest}, fh, indent=1)
+        json.dump({"seed": seed, "styles": STYLES, "pages": manifest}, fh, indent=1)
     print("%d pages (and their twins) -> %s" % (count, OUT))
 
 
@@ -137,7 +165,8 @@ def compare():
     import csp_hash_check as c
     import re
     import tempfile
-    manifest = json.load(open(MANIFEST, encoding="utf-8"))["pages"]
+    loaded = json.load(open(MANIFEST, encoding="utf-8"))
+    manifest, styles = loaded["pages"], loaded.get("styles", False)
     results = json.load(open(RESULTS, encoding="utf-8"))
     bad = 0
     for name, info in sorted(manifest.items()):
@@ -145,14 +174,15 @@ def compare():
         root = tempfile.mkdtemp()
         try:
             shutil.copy(os.path.join(OUT, name + ".html"), os.path.join(root, "index.html"))
-            errors = c.check(root)[0]
+            errors = c.check(root, styles=styles)[0]
         finally:
             shutil.rmtree(root)
         with open(os.path.join(OUT, name + ".html"), "rb") as fh:
             lines = fh.read().decode("utf-8").replace("\r\n", "\n").split("\n")
         where = {}
         for number, text in enumerate(lines, 1):
-            for m in re.findall(r"dataset\.(m\d+)", text):
+            for m in re.findall(r"dataset\.(m\d+)|id=\"(m\d+)\"", text):
+                m = m[0] or m[1]
                 where[m] = number
         # An error is reported at the line its element starts on; a script
         # spanning lines carries its mark further down, so an error belongs

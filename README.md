@@ -115,7 +115,11 @@ lists the hash each page's inline code needs, then one `script-src` line
   it writes random pages mixing all of the above under random policies, each
   with a twin that has no policy, and compares what Chrome ran with what the
   checker reports. Its first 300 pages found two disagreements, both fixed
-  and both now cases; the 300 then agreed. Since `v1.2.0`,
+  and both now cases; the 300 then agreed. A second round (`--styles`: inline
+  styles, `srcdoc`, nonces, duplicate attributes, more) agreed everywhere but
+  one place, still open: a script inside SVG `<foreignObject>` or MathML
+  `<mtext>` is HTML again, and the checker hashes it as SVG (27 of 300
+  pages). Since `v1.2.0`,
   which fixed four ways it disagreed: `'unsafe-hashes'` passed every handler,
   `'strict-dynamic'` did not switch `'unsafe-inline'` off, a `<meta>` policy
   governed the whole page, and scripts in comments and `<noscript>` were
