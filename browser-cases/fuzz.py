@@ -1,7 +1,7 @@
 """Differential fuzzing: random pages, a browser's verdict, the checker's verdict.
 
     python browser-cases/fuzz.py make 300 --seed 1   # writes pages/fuzz/ and fuzz-manifest.json
-    (load pages/fuzz/ in a browser with fuzz-runner.js; save what it prints as fuzz-results.json)
+    (serve pages/, run fuzz-runner.js in the page's console, then: fuzz.py results <string>)
     python browser-cases/fuzz.py compare             # every disagreement, page by page
 
 Each page mixes snippets of inline code (scripts with comments, nested tags,
