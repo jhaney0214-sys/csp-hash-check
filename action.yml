@@ -33,9 +33,15 @@ inputs:
 runs:
   using: composite
   steps:
+    # The action's own Python, kept off the job's PATH: with setup-python's
+    # default, every step after this one in the caller's job ran on the
+    # action's Python instead of theirs (found by Assay, 2026-10-19, whose
+    # tests then ran without numpy). It is called by its path below.
     - uses: actions/setup-python@v5
+      id: python
       with:
         python-version: ${{ inputs.python-version }}
+        update-environment: false
     - name: csp-hash-check
       shell: bash
       # Inputs travel as environment variables, not interpolated into the
@@ -48,6 +54,7 @@ runs:
         CSP_EXCLUDE: ${{ inputs.exclude }}
         CSP_JSON: ${{ inputs.json }}
         CSP_CONFIG: ${{ inputs.config }}
+        CSP_PYTHON: ${{ steps.python.outputs.python-path }}
       run: |
         args=("$CSP_PATH")
         if [ -n "$CSP_HEADERS" ]; then args+=(--headers "$CSP_HEADERS"); fi
@@ -59,4 +66,4 @@ runs:
           pattern="${pattern#"${pattern%%[![:space:]]*}"}"; pattern="${pattern%"${pattern##*[![:space:]]}"}"
           if [ -n "$pattern" ]; then args+=(--exclude "$pattern"); fi
         done <<< "$CSP_EXCLUDE"
-        python "$GITHUB_ACTION_PATH/csp_hash_check.py" "${args[@]}"
+        "$CSP_PYTHON" "$GITHUB_ACTION_PATH/csp_hash_check.py" "${args[@]}"
