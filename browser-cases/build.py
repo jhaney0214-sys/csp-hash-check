@@ -193,6 +193,16 @@ def build():
          {"y": "ran"},
          "in SVG, &lt; inside a script is decoded before hashing (it is not raw text there)")
 
+    case("template-script",
+         page("script-src %s" % sha(s), script("s") + "\n<template>%s</template>" % script("t")),
+         {"s": "ran", "t": "inert"},
+         "a script in <template> never runs unless a script clones it (found by fuzz.py)")
+
+    case("nonce-policy-no-attribute",
+         page("script-src 'nonce-x'", script("s")),
+         {"s": "blocked"},
+         "a nonce in a written policy, and a script without it: blocked (found by fuzz.py)")
+
     # The page's bytes are windows-1252; the policy holds the hash of the
     # script's text encoded as UTF-8, which is what CSP says a browser hashes.
     latin = "var café = 1;" + mark("e")

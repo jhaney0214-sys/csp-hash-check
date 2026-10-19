@@ -48,6 +48,9 @@
   "meta-report-only": {
    "s": "ran"
   },
+  "nonce-policy-no-attribute": {
+   "s": "blocked"
+  },
   "none-beside-a-hash": {
    "s": "ran"
   },
@@ -78,6 +81,10 @@
   },
   "svg-script-entity": {
    "y": "ran"
+  },
+  "template-script": {
+   "s": "ran",
+   "t": "inert"
   },
   "type-with-parameters": {
    "p": "inert"

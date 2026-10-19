@@ -138,6 +138,7 @@ class _Parse(HTMLParser):
         self.in_head = True
         self.raw = 0              # depth inside RAW_TEXT elements
         self.foreign = 0          # depth inside <svg> or <math>
+        self.template = 0         # depth inside <template>, whose content runs only when cloned
         self.open = None          # (kind, pos, attrs, body start, foreign) of an open <script> or <style>
         self.feed(html)
         self.close()
@@ -147,7 +148,7 @@ class _Parse(HTMLParser):
 
     def _add(self, kind, pos, text, name=None, nonce=None):
         self.items.append({"kind": kind, "line": pos[0], "pos": pos, "text": text, "name": name,
-                           "nonce": nonce})
+                           "nonce": nonce, "template": self.template > 0})
 
     def handle_starttag(self, tag, attr_list):
         pos = self.getpos()
@@ -160,6 +161,8 @@ class _Parse(HTMLParser):
         if tag in ("svg", "math"):
             self.foreign += 1
         attrs = {}
+        if tag == "template":
+            self.template += 1
         for name, value in attr_list:
             attrs.setdefault(name, value)        # the first of a repeated attribute wins
         for name, value in attrs.items():
@@ -209,6 +212,8 @@ class _Parse(HTMLParser):
             self.in_head = False
         if tag in ("svg", "math") and self.foreign:
             self.foreign -= 1
+        if tag == "template" and self.template:
+            self.template -= 1
         if self.open and tag == self.open[0]:
             kind, pos, attrs, start, foreign = self.open
             self.open = None
@@ -468,8 +473,9 @@ def style_sources(policy):
 
 
 def judge(sources, kind, every, nonce=None):
-    """True (allowed), False (blocked), or 'nonce' (only a nonce could allow it,
-    which a static file cannot show). `every` is the code's set of hashes.
+    """True (allowed), False (blocked), or 'static-nonce' (allowed by a nonce
+    written into the files, which protects nothing). `every` is the code's
+    set of hashes; `nonce` the element's nonce attribute, if any.
 
     - A hash allows a <script> or <style> element directly.
     - A handler, a style= attribute or a javascript: URL needs 'unsafe-hashes'
@@ -487,11 +493,14 @@ def judge(sources, kind, every, nonce=None):
         return True
     nonces = [s[len("'nonce-"):-1] for s in sources if s.lower().startswith("'nonce-") and s.endswith("'")]
     if kind in ELEMENTS and nonces:
-        if nonce is None:
-            return "nonce"                  # a server may add the attribute per response
-        # The attribute and the policy are both in the files read, so neither
-        # changes per response: the match is definite (browser-cases/static-nonce).
-        return "static-nonce" if nonce in nonces else False
+        # The policy was read from a file, so its nonce is the same on every
+        # response: an element without that nonce is blocked (fuzzing found
+        # the old "cannot verify" note on pages a browser plainly blocked),
+        # and one with it runs, though a fixed nonce protects nothing
+        # (browser-cases/static-nonce).
+        if nonce is not None and nonce in nonces:
+            return "static-nonce"
+        return False
     return False
 
 
@@ -500,8 +509,12 @@ def allows_inline(sources, hashed):
     return judge(sources, "script", {hashed} if isinstance(hashed, str) else set(hashed))
 
 
-def blocked_message(item, where, directive, h):
+def blocked_message(item, where, directive, h, sources=()):
     text = _blocked_message(item, where, directive, h)
+    if item["kind"] in ELEMENTS and any(s.lower().startswith("'nonce-") for s in sources):
+        text += (" (the policy lists a nonce and this element %s; a policy written in a file is the "
+                 "same on every response)" % ("has a different one" if item.get("nonce") is not None
+                                              else "has no nonce attribute"))
     return "in <iframe srcdoc>: " + text if item.get("srcdoc") else text
 
 
@@ -783,17 +796,20 @@ def check(root, headers_file=None, styles=False, exclude=(), configs=()):
                         if i is not None:
                             used[i].update(matching(sources, every))
                         continue
-                    if verdict == "nonce":
-                        notes.append((rel, item["line"], "inline %s relies on a nonce, which a static check "
-                                                         "cannot verify" % item["kind"]))
-                        continue
                     if verdict == "static-nonce":
                         warnings.append((rel, item["line"], "inline %s is allowed by a nonce written into the "
                                          "file; a nonce that never changes protects nothing - use its "
                                          "hash, %s" % (item["kind"], h)))
                         continue
                     where = os.path.basename(rules[i].source) if i is not None else "<meta> policy"
-                    errors.append((rel, item["line"], blocked_message(item, where, directive, h)))
+                    message = blocked_message(item, where, directive, h, sources)
+                    if item.get("template"):
+                        # Inert as written (browser-cases fuzzing: never ran);
+                        # checked by the policy only if a script clones it.
+                        notes.append((rel, item["line"], "in <template>, runs only if a script clones it, "
+                                                         "and then: " + message))
+                    else:
+                        errors.append((rel, item["line"], message))
                     break                       # one error for each piece of code, naming a policy
     for i, rule in enumerate(rules):
         d = {}

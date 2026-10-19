@@ -158,6 +158,19 @@
   },
   "note": "in SVG, &lt; inside a script is decoded before hashing (it is not raw text there)"
  },
+ "template-script": {
+  "expect": {
+   "s": "ran",
+   "t": "inert"
+  },
+  "note": "a script in <template> never runs unless a script clones it (found by fuzz.py)"
+ },
+ "nonce-policy-no-attribute": {
+  "expect": {
+   "s": "blocked"
+  },
+  "note": "a nonce in a written policy, and a script without it: blocked (found by fuzz.py)"
+ },
  "windows-1252-page": {
   "expect": {
    "e": "ran"

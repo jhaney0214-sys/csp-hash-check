@@ -132,12 +132,22 @@ class Policies(Site):
         self.headers("/*\n  Content-Security-Policy: script-src %s\n" % HASH)
         self.assertEqual(len(self.run_check()[0]), 1)           # the meta policy still blocks it
 
-    def test_a_nonce_is_noted_not_judged(self):
+    def test_a_script_without_the_files_nonce_is_blocked(self):
+        # Until 1.2 this was only noted, as if a server added the nonce per
+        # response; a policy read from a file is the same on every response,
+        # and differential fuzzing in Chrome showed such scripts blocked.
         self.page("index.html", "<script>%s</script>" % SCRIPT)
         self.headers("/*\n  Content-Security-Policy: script-src 'nonce-abc'\n")
+        errors = self.run_check()[0]
+        self.assertEqual(len(errors), 1)
+        self.assertIn("no nonce attribute", errors[0][2])
+
+    def test_a_template_script_is_a_notice_not_an_error(self):
+        self.page("index.html", "<template><script>%s</script></template>" % SCRIPT)
+        self.headers("/*\n  Content-Security-Policy: script-src 'self'\n")
         errors, _, notes, _ = self.run_check()
         self.assertEqual(errors, [])
-        self.assertTrue(any("nonce" in n[2] for n in notes))
+        self.assertTrue(any(n[2].startswith("in <template>") and HASH in n[2] for n in notes))
 
     def test_a_page_with_no_policy_is_noted(self):
         self.page("index.html", "<script>%s</script>" % SCRIPT)
