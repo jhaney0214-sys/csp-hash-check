@@ -32,6 +32,9 @@
   "legacy-javascript-type-no-policy": {
    "t": "ran"
   },
+  "math-mtext-is-html": {
+   "t": "ran"
+  },
   "meta-after-the-script": {
    "before": "ran",
    "after": "blocked"
@@ -75,6 +78,9 @@
   "strict-dynamic-unsafe-inline": {
    "s": "blocked",
    "h": "blocked"
+  },
+  "svg-foreignobject-is-html": {
+   "o": "ran"
   },
   "svg-script-cdata": {
    "v": "ran"

@@ -59,6 +59,10 @@ RAW_TEXT = {"noscript", "textarea", "title", "xmp", "iframe", "noembed", "nofram
 # What may sit in <head>; the first other element starts <body>, and a <meta>
 # policy after that point is ignored.
 HEAD_TAGS = {"html", "head", "meta", "title", "link", "style", "script", "base", "noscript", "template"}
+# Where foreign content turns back into HTML (the HTML standard's HTML and
+# MathML text integration points).
+INTEGRATION_POINTS = {("svg", "foreignobject"), ("svg", "desc"), ("svg", "title"),
+                      ("math", "mi"), ("math", "mo"), ("math", "mn"), ("math", "ms"), ("math", "mtext")}
 # Attributes whose javascript: URL runs as script when followed.
 URL_ATTRS = {("a", "href"), ("area", "href"), ("iframe", "src"), ("frame", "src"),
              ("form", "action"), ("button", "formaction"), ("input", "formaction")}
@@ -137,11 +141,14 @@ class _Parse(HTMLParser):
         self.items, self.metas, self.ignored, self.scripts = [], [], [], []
         self.in_head = True
         self.raw = 0              # depth inside RAW_TEXT elements
-        self.foreign = 0          # depth inside <svg> or <math>
+        self.context = []         # (tag, "svg" / "math" / "html") for each element that changes namespace
         self.template = 0         # depth inside <template>, whose content runs only when cloned
         self.open = None          # (kind, pos, attrs, body start, foreign) of an open <script> or <style>
         self.feed(html)
         self.close()
+
+    def _namespace(self):
+        return self.context[-1][1] if self.context else "html"
 
     def _offset(self, pos):
         return self.starts[pos[0] - 1] + pos[1]
@@ -158,8 +165,13 @@ class _Parse(HTMLParser):
             return
         if tag == "body" or tag not in HEAD_TAGS:
             self.in_head = False
-        if tag in ("svg", "math"):
-            self.foreign += 1
+        here = self._namespace()
+        if here == "html" and tag in ("svg", "math"):
+            self.context.append((tag, tag))
+        elif (here, tag) in INTEGRATION_POINTS:
+            # HTML again inside <foreignObject>, <mtext> and the rest: a
+            # <script> there is an HTML script (fuzz.py round two).
+            self.context.append((tag, "html"))
         attrs = {}
         if tag == "template":
             self.template += 1
@@ -192,16 +204,16 @@ class _Parse(HTMLParser):
                 self.items.append(dict(item, line=pos[0], pos=pos, srcdoc=True, own_metas=own))
         if tag in ("script", "style"):
             start = self._offset(pos) + len(self.get_starttag_text() or "")
-            self.open = (tag, pos, attrs, start, self.foreign > 0)
-        if tag in RAW_TEXT:
-            self.raw = 1
+            self.open = (tag, pos, attrs, start, here != "html")
+        if tag in RAW_TEXT and here == "html":
+            self.raw = 1                # in SVG, <title> and the rest are not raw text
 
     def handle_startendtag(self, tag, attrs):
         if tag in ("script", "style"):
             return                     # <script/> is a start tag in HTML; its body follows
         self.handle_starttag(tag, attrs)
-        if tag in ("svg", "math"):
-            self.foreign -= 1          # <svg/> opened and closed at once
+        if self.context and self.context[-1][0] == tag:
+            self.context.pop()         # <svg/> opened and closed at once
 
     def handle_endtag(self, tag):
         if self.raw:
@@ -210,8 +222,8 @@ class _Parse(HTMLParser):
             return
         if tag == "head":
             self.in_head = False
-        if tag in ("svg", "math") and self.foreign:
-            self.foreign -= 1
+        if self.context and self.context[-1][0] == tag:
+            self.context.pop()
         if tag == "template" and self.template:
             self.template -= 1
         if self.open and tag == self.open[0]:

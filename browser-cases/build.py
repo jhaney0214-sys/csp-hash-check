@@ -203,6 +203,17 @@ def build():
          {"s": "blocked"},
          "a nonce in a written policy, and a script without it: blocked (found by fuzz.py)")
 
+    raw_js = "/* &amp; */ %s" % mark("o")
+    case("svg-foreignobject-is-html",
+         page("script-src %s" % sha(raw_js), "<svg><foreignObject><script>%s</script></foreignObject></svg>" % raw_js),
+         {"o": "ran"},
+         "inside <foreignObject> a script is HTML again: raw text, &amp; left as written (found by fuzz.py)")
+
+    raw_m = "/* &amp; */ %s" % mark("t")
+    case("math-mtext-is-html",
+         page("script-src %s" % sha(raw_m), "<math><mtext><script>%s</script></mtext></math>" % raw_m),
+         {"t": "ran"}, "the same inside MathML <mtext> (found by fuzz.py)")
+
     # The page's bytes are windows-1252; the policy holds the hash of the
     # script's text encoded as UTF-8, which is what CSP says a browser hashes.
     latin = "var café = 1;" + mark("e")

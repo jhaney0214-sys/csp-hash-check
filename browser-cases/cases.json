@@ -171,6 +171,18 @@
   },
   "note": "a nonce in a written policy, and a script without it: blocked (found by fuzz.py)"
  },
+ "svg-foreignobject-is-html": {
+  "expect": {
+   "o": "ran"
+  },
+  "note": "inside <foreignObject> a script is HTML again: raw text, &amp; left as written (found by fuzz.py)"
+ },
+ "math-mtext-is-html": {
+  "expect": {
+   "t": "ran"
+  },
+  "note": "the same inside MathML <mtext> (found by fuzz.py)"
+ },
  "windows-1252-page": {
   "expect": {
    "e": "ran"
